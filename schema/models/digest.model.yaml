@@ -1,0 +1,217 @@
+# =============================================================================
+# digest — the config row (Odoo `digest.digest`) + its two through-tables:
+#   the recipient subscription rows (Odoo's user_ids m2m, realized as
+#   state-carrying rows so "unsubscribed" exists as data) and the per-digest
+#   enabled-KPI rows (Odoo's kpi_* boolean field pairs, realized as rows
+#   keyed by the declarative registry's kpi_<name> keys).
+#
+# PORT DECISIONS (source: docs/odoo/marketing/digest — cycle 18):
+#  - DG-1 — the KPI registry is DECLARATIVE and NAME-KEYED: registered
+#    compute functions keyed kpi_<name>, composed into the module through
+#    the builder (the integrations ProviderRegistry precedent). The runtime
+#    `_fields` prefix scan and the `available_fields` CSV compute DO NOT
+#    PORT. The registry API surface is src/application/service/kpi_registry.rs
+#    (user_owned) — other modules register their KPIs there; this table only
+#    stores WHICH registry keys a given digest enables.
+#  - DG-6 — company_id is NOT NULL: the strict fence removes Odoo's
+#    env.company fallback (a no-company digest computing against the sending
+#    user's company). Every digest here has an owning company; the
+#    user<->company axis resolves through sapiens organization_users active
+#    membership via the fail-closed port.
+#  - DG-13 — next_run_date is the nullable due-date spine: filled at create
+#    and on periodicity change, advanced only after a successful send loop,
+#    deliberately NOT advanced on a mail-delivery failure (retry next day).
+#    A NULL next_run_date means never-mailed.
+#  - DG-2 — state is the simplest hand-set machine in the set: 2 values,
+#    any->any one-liner actions, no guards, no tracking (machine file
+#    digest_state.hook.yaml).
+#  - Odoo's `is_subscribed` (non-stored compute) and `currency_id` (editable
+#    related) do not port as columns — see index.model.yaml coverage notes.
+# =============================================================================
+
+models:
+
+  - name: DigestDigest
+    collection: digest_digests
+    description: "DigestDigest (Odoo digest.digest) — one periodic KPI email configuration: WHO receives it (subscription rows), HOW OFTEN (periodicity + the slowdown ladder), WHICH registry KPIs are enabled (digest_digest_kpis rows), and the due-date spine the daily pull cron drains. Company-fenced strict — a digest always belongs to exactly one company (the env.company fallback does not port)."
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique record id"
+
+      # ---- identity ----------------------------------------------------------
+      name:
+        type: string
+        attributes: ["@required", "@max(255)"]
+        description: "Display name (the record's name field)."
+      periodicity:
+        type: DigestPeriodicity
+        attributes: ["@required", "@default(daily)"]
+        description: "Send cadence — hand-set; drives the next_run_date delta (1d/1w/1m/3mo) AND the slowdown ladder's login-recency window (daily 2d / weekly 7d / monthly 1m / quarterly 3m). Changing it resets next_run_date."
+      next_run_date:
+        type: date?
+        description: "THE due-date spine (DG-13): the cron's queue is exactly `next_run_date <= today AND state = activated` — no self-arming trigger exists. Nullable-with-meaning: NULL = never mailed yet. Advanced at the END of a successful send loop; a mail-delivery failure deliberately leaves it unadvanced so the digest retries whole next day."
+      state:
+        type: DigestState
+        attributes: ["@required", "@default(activated)"]
+        lifecycle:
+          shape: hand_set
+          state_machine: digest_state
+          display_labels:
+            activated: "Activated"
+            deactivated: "Deactivated"
+        description: "DG-2 — the 2-value hand-set machine: action_activate / action_deactivate are one-liner any->any verbs with no guards and no tracking; the cron's due scan filters on activated. Simplest machine in the family (EBT-1)."
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Owning company # logical FK organization.Company.id (direct strict fencing, ADR-0010). NOT NULL by the DG-6 closing: the strict fence removes Odoo's env.company fallback — a digest ALWAYS has an owning company, and its KPIs compute against THIS company, never the sending user's."
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id]
+        description: "The fence column's list-filter arm (company-scoped enumeration rides the RLS policy; the index keeps it cheap)"
+      - type: index
+        fields: [state, next_run_date]
+        description: "The cron's due scan: state = activated AND next_run_date <= today (the due-date column IS the queue — no other scheduler state exists)"
+
+  # ===========================================================================
+  # DigestSubscription — Odoo digest.digest.user_ids (m2m res.users), realized
+  # as state-carrying through-rows: the RFC 8058 one-click unsubscribe needs
+  # "unsubscribed" to EXIST as data (idempotent re-POST = no-op on a tombstone
+  # row, the audit event has a row to name, and re-subscribe is a declared
+  # edge instead of a row resurrection). Subscribing/unsubscribing goes
+  # through the sudo-helper-equivalent service verbs (route/context is the
+  # gate, not row ACLs — Odoo's posture kept).
+  # ===========================================================================
+  - name: DigestSubscription
+    collection: digest_subscriptions
+    description: "DigestSubscription (Odoo digest.digest.user_ids) — one recipient membership row per (digest, user), carrying the subscribed/unsubscribed state. The unsubscribe tombstone is what makes the RFC 8058 one-click endpoint idempotent: a second POST on an already-unsubscribed row is a bare 200 no-op, never an error and never a duplicate audit fact. user_id is a logical ref (no FK, no sapiens edge)."
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique record id"
+      digest_id:
+        type: uuid
+        attributes: ["@foreign_key(DigestDigest.digest_digests)", "@indexed"]
+        description: "The digest (relation-driven FK, ON DELETE CASCADE)."
+      user_id:
+        type: uuid
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The recipient # logical ref sapiens.User.id (no DB constraint). Internal users only — the internal-user predicate is host-injected through the fail-closed port at subscribe time."
+      state:
+        type: DigestSubscriptionState
+        attributes: ["@required", "@default(subscribed)"]
+        lifecycle:
+          shape: hand_set
+          state_machine: digest_subscription_state
+          display_labels:
+            subscribed: "Subscribed"
+            unsubscribed: "Unsubscribed"
+        description: "The membership state: unsubscribe (the RFC 8058 Tier A edge) flips subscribed -> unsubscribed and stamps unsubscribed_at; resubscribe flips back. Active recipients = state subscribed. Hand-set verbs only."
+      unsubscribed_at:
+        type: datetime?
+        description: "Stamped by the unsubscribe verb on the -> unsubscribed edge (NULL while subscribed) — the audit trail's when-arm; re-subscribe clears it."
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    relations:
+      digest:
+        type: DigestDigest
+        attributes: ["@one", "@foreign_key(digest_id)", "@on_delete(cascade)"]
+        description: "The digest (real FK digest.digest_subscriptions.digest_id -> digest.digest_digests, cascade)"
+
+    indexes:
+      - type: unique
+        fields: [digest_id, user_id]
+        description: "Membership is a set — one row per (digest, user), ever; the tombstone reuses the row instead of minting a second"
+
+  # ===========================================================================
+  # DigestDigestKpi — Odoo's kpi_* boolean field pairs on digest.digest,
+  # realized as per-digest enablement rows keyed by the DECLARATIVE registry's
+  # kpi_<name> keys. Row-exists = enabled (the checkbox's checked state);
+  # absence = disabled. The registry itself is code (an entry is exactly
+  # {name, label, fence declaration, computer} — no unit or action-link
+  # metadata; that was decided DROPPED with the declarative-registry
+  # redesign) composed through the
+  # module builder — see src/application/service/kpi_registry.rs. This table
+  # never interprets a key: writes are validated against the composed
+  # registry and an unknown key is a typed refusal, not silent data.
+  # ===========================================================================
+  - name: DigestDigestKpi
+    collection: digest_digest_kpis
+    description: "DigestDigestKpi (Odoo digest.digest kpi_* booleans) — one enabled-KPI row per (digest, registry key). The key namespace is the declarative KPI registry (kpi_<name>, registered by whichever module owns the metric); this row says THIS digest renders THAT metric. No FK to the registry exists (it is code) — the service layer validates keys against the composed registry, fail-closed on unknown names."
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique record id"
+      digest_id:
+        type: uuid
+        attributes: ["@foreign_key(DigestDigest.digest_digests)", "@indexed"]
+        description: "The digest (relation-driven FK, ON DELETE CASCADE)."
+      kpi_key:
+        type: string
+        attributes: ["@required", "@max(120)"]
+        description: "The registry key, verbatim: kpi_<name> (e.g. kpi_res_users_connected). Must exist in the composed KpiRegistry at write time — unknown keys are refused loudly by the service verb; there is no DB-level vocabulary to enforce (the registry is code, not a table)."
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    relations:
+      digest:
+        type: DigestDigest
+        attributes: ["@one", "@foreign_key(digest_id)", "@on_delete(cascade)"]
+        description: "The digest (real FK digest.digest_digest_kpis.digest_id -> digest.digest_digests, cascade)"
+
+    indexes:
+      - type: unique
+        fields: [digest_id, kpi_key]
+        description: "Enablement is a set — one row per (digest, registry key)"
+
+# =============================================================================
+# Enums (digest)
+# =============================================================================
+
+enums:
+  - name: DigestPeriodicity
+    description: "Send cadence — drives both the next_run_date delta (1d/1w/1m/3mo) and the slowdown ladder's login-recency window; the ladder degrades along this order daily -> weekly -> monthly -> quarterly, monotonically, with no reverse rung"
+    variants:
+      - name: daily
+        description: "Every day (ladder window: a login within 2 days)"
+        default: true
+      - name: weekly
+        description: "Every week (ladder window: 7 days)"
+      - name: monthly
+        description: "Every month (ladder window: 1 month)"
+      - name: quarterly
+        description: "Every quarter (ladder window: 3 months — the ladder's floor: a quarterly digest never degrades further)"
+
+  - name: DigestState
+    description: "The 2-value hand-set machine (DG-2) — any->any one-liner actions, no guards, no tracking; the cron's due scan filters on activated"
+    variants:
+      - name: activated
+        description: "The digest is in the cron's due scan"
+        default: true
+      - name: deactivated
+        description: "Paused — the digest never mails until re-activated"
+
+  - name: DigestSubscriptionState
+    description: "The membership state machine — unsubscribe is the RFC 8058 Tier A edge (idempotent: a second POST on unsubscribed is a no-op); resubscribe is the declared reverse edge"
+    variants:
+      - name: subscribed
+        description: "The user receives this digest (an active recipient)"
+        default: true
+      - name: unsubscribed
+        description: "The tombstone — the user opted out; the row stays for idempotency and audit"

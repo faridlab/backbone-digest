@@ -1,0 +1,167 @@
+# =============================================================================
+# digest Module - Schema Index
+# =============================================================================
+# Version: 1
+# Description: Module schema index. `module:` and `schema:` are stamped from
+# the module name at creation. `schema:` gives this module its OWN Postgres
+# schema (migrations emit `CREATE SCHEMA digest` and qualify tables as
+# `digest.<table>`) — the convention every backbone module follows (see
+# backbone-sapiens, backbone-survey). Do not remove it.
+#
+# Enum types are created UNQUALIFIED in the `public` schema (the module
+# convention, ratified): `CREATE TYPE digest_periodicity ...` with no schema
+# prefix, IF-NOT-EXISTS-guarded. All three names were census-checked against
+# every module migration in the tree before landing (zero exact or stem
+# collisions; the nearest neighbor is sapiens' notification-frequency enum
+# `digest_frequency` — the notification-preference cadence, a DIFFERENT
+# concept from this module's send periodicity, and both the name and its
+# stems are distinct from `digest_periodicity` / `digest_state` /
+# `digest_subscription_state`).
+# =============================================================================
+
+module: digest
+version: 1
+schema: digest
+description: "digest — the KPI-digest engine: one company-fenced config row per periodic KPI email (recipients, cadence, enabled KPI registry keys), a shared tips carousel consumed per user, a declarative name-keyed KPI registry other modules extend, the anti-spam slowdown ladder, and a daily plain-pull cron whose due-date column is the queue (Odoo digest port)"
+
+# =============================================================================
+# ADR-0014 company fence — the DG-12 closing (council 2026-08-22, binding).
+#
+# Upstream ships ZERO ir.rules: every internal user reads every company's
+# digest configs and tips (the spec's faithfulness note 6 authorizes picking
+# either posture for a real-RLS port). This port picks PER-COMPANY DIGESTS:
+# the digest config row is company-private, so the cross-company
+# invisibility probe ("a company-A operator cannot enumerate company-B
+# digests") is answerable by a fence declaration, not by convention.
+#
+# Posture map (entity -> realized fence, under this one declaration):
+#   DigestDigest       -> strict (@required company_id — the DG-6 closing:
+#                         NOT NULL removes Odoo's env.company fallback; a
+#                         digest ALWAYS has an owning company here)
+#   DigestTip          -> shared (NO company column — tips are one global
+#                         carousel, every company reads the same rows)
+#   DigestSubscription -> none (no company column — the recipient graph;
+#                         reads resolve through the fenced parent digest,
+#                         the C2 single-tenancy posture below)
+#   DigestDigestKpi    -> none (no company column — KPI enablement rows;
+#                         same read-through-parent contract)
+#   DigestTipUser      -> none (no company column — per-user tip
+#                         consumption markers, keyed by user not company)
+#
+# The fence-none children carry no company column BY RULING (the spec's C2
+# single-tenancy posture): their company axis is INHERITED — every supported
+# read path joins the strict-fenced digest_digests parent, so the parent's
+# RLS answers the family-wide cross-company probe. Tips are deliberately
+# world-shared data (carousel content, no tenant axis).
+#
+# NOTE: ADR-0014's `none`-exemplar list still names digest (stale — the
+# ruling above supersedes it; recorded in docs/port-notes.md).
+# =============================================================================
+company_fence: strict
+
+config:
+  database: postgresql
+  soft_delete: true
+  audit: true
+  default_timestamps: true
+  generators:
+    disabled:
+      - graphql
+      - grpc
+      - proto
+
+# Reuse sapiens for user identity (digest recipients, tip consumers) —
+# logical refs, no DB constraint, no Cargo edge. organization.Company (the
+# fence target) and identity.Group (the tip visibility gate) are likewise
+# comment-level logical refs only.
+external_imports:
+  - module: sapiens
+    types: [User]
+
+# Shared value-object types available to all models in this module.
+shared_types:
+  Timestamps:
+    created_at:
+      type: datetime
+      attributes: ["@default(now)"]
+      description: "Record creation timestamp"
+    updated_at:
+      type: datetime
+      attributes: ["@updated_at"]
+      description: "Last update timestamp"
+    deleted_at:
+      type: datetime?
+      description: "Soft delete timestamp"
+
+  Actors:
+    created_by:
+      type: uuid?
+      attributes: ["@foreign_key(sapiens.User.id)"]
+      description: "User who created this record"
+    updated_by:
+      type: uuid?
+      attributes: ["@foreign_key(sapiens.User.id)"]
+      description: "User who last updated this record"
+    deleted_by:
+      type: uuid?
+      attributes: ["@foreign_key(sapiens.User.id)"]
+      description: "User who deleted this record"
+
+  Metadata: [Timestamps, Actors]
+
+# Import each entity model (informational — discovery is a recursive glob,
+# but keeping the list accurate helps readers).
+imports:
+  - digest.model.yaml
+  - tip.model.yaml
+
+# =============================================================================
+# FLAG-ID COVERAGE — docs/odoo/marketing/digest port (this module closes):
+#
+# digest.digest         -> DigestDigest                digest.model.yaml
+#                           (the config row: cadence, due-date spine, 2-value
+#                           hand-set state machine, company fence column)
+# digest.digest.user_ids -> DigestSubscription         digest.model.yaml
+#                           (Odoo's m2m realized as through-rows so the
+#                           unsubscribed state EXISTS as data — the RFC 8058
+#                           idempotency + audit substrate)
+# kpi_* booleans        -> DigestDigestKpi             digest.model.yaml
+#                           (per-digest enabled-KPI rows keyed by the
+#                           declarative registry's kpi_<name> keys — the
+#                           registry itself is code, see
+#                           src/application/service/kpi_registry.rs)
+# digest.tip            -> DigestTip                   tip.model.yaml
+#                           (shared carousel row, un-sanitized payload)
+# digest.tip.user_ids   -> DigestTipUser               tip.model.yaml
+#                           (the per-user consumption marker)
+#
+# Spec-side extensions deliberately NOT ported as digest-owned models (the
+# spec's extensions.model.yaml stays spec-side):
+#   res.users (auto-subscribe create interception) -> host seam: the
+#     sapiens.user.created integration event on the host bus drives the
+#     digest subscribe verb; the internal-user predicate is a host-side
+#     policy (recorded in the sapiens spec) reached through the recipient
+#     context source the host composes — no digest-owned model.
+#   res.config.settings (+2 config fields) -> plain host/module config keys
+#     (digest.default_digest_emails / digest.default_digest_id) — no table.
+#   res.users.log -> NOT a table here: the slowdown signal is sapiens
+#     users.last_login (the cycle doc's identity.UserLog mapping re-pointed
+#     at port time).
+#
+# Hardening / deviations decided against the upstream behavior list:
+#   available_fields (the CSV compute)   -> DROPPED: the declarative
+#          name-keyed registry replaces the kpi_* _fields prefix scan.
+#   currency_id (editable related)       -> DROPPED as a column, and the
+#          registry entry carries NO unit or action-link metadata (decided
+#          DROPPED with the declarative-registry redesign): an entry is
+#          exactly {name, label, fence declaration, computer}, so a
+#          monetary KPI renders as a plain count with no currency leg.
+#   is_subscribed (non-stored compute)   -> read service (subscription row
+#          state), never persisted.
+#   window timezone                      -> UTC (no tz home exists on the
+#          backbone org stack; the declination is recorded in
+#          docs/port-notes.md).
+# Out of scope by ruling: any portal/website routing edge or Cargo edge onto
+# backbone-portal (dep-edge substitution — the RFC 8058 unsubscribe route
+# mounts on the host's bare public-route class).
+# =============================================================================

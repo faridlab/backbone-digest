@@ -1,0 +1,141 @@
+# =============================================================================
+# digest hooks — the write-path rules with enforcement loci (ADR-0015) and
+#   the lifecycle declarations for every entity.
+#
+# Spec of behavior: the typed verbs in the (later, hand-authored) services
+#   under src/application/service/. The machines are DECLARATIONS — the
+#   transition verbs are the only writers of state.
+#
+# The two machines live in their own per-entity hook files, where the schema
+#   validator resolves the fields' `state_machine:` refs:
+#   digest_state.hook.yaml            DigestDigest.state (activated/deactivated)
+#   digest_subscription_state.hook.yaml DigestSubscription.state (the RFC 8058
+#                                     tombstone edge + resubscribe)
+#
+# Lifecycle declarations (ADR-0016 — silence must not read "nobody decided"):
+#   hand_set machines: DigestDigest.state (digest_state), DigestSubscription
+#                      .state (digest_subscription_state) — both hook files.
+#   lifecycle none:    DigestTip and DigestTipUser have NO state fields at
+#                      all (carousel rows and consumption markers, not
+#                      machines) — declared here so lint catches any
+#                      smuggled status enum. DigestDigestKpi likewise: an
+#                      enablement row EXISTS or does not; there is no third
+#                      state. Periodicity is NOT a lifecycle (it is the
+#                      cadence parameter the ladder mutates by one rung —
+#                      the ladder rule R-DG3 owns it).
+# =============================================================================
+
+module: digest
+version: 1
+
+rules:
+
+  # ---- the KPI registry (DG-1, condition 16) ---------------------------------
+
+  - id: R-DG1
+    name: kpi_registry_declarative
+    when: register kpi, enable kpi on digest, render digest
+    assert: "the metric set is the DECLARATIVE registry: compute functions keyed kpi_<name>, composed into the module through the builder (the ProviderRegistry precedent) — NEVER a runtime field-prefix scan; available_fields (the CSV compute) does not port. Enabling a key on a digest validates against the composed registry: an unknown key is a typed refusal at the service verb, a duplicate registration is a load-time panic. The registry is the API surface other modules extend"
+    error_code: kpi_not_registered
+    enforcement: service
+    # service-only justification: the registry is code composed at build
+    # time; digest_digest_kpis rows carry opaque keys the database cannot
+    # vocabulary-check (there is no registry table — by design).
+
+  - id: R-DG5
+    name: out_of_fence_kpi_drop_declared
+    when: render digest for recipient
+    assert: "the out-of-fence KPI DROP is decided from the registry entry's FENCE DECLARATION, never from row count — under RLS an out-of-fence read is zero rows, indistinguishable from a genuine zero, so zero-ness can never be the discriminator. A KPI whose declared fence is outside the recipient's render fence simply does not render: silent by design, documented at the API-contract level (the registry trait's docs). Render windows are computed in UTC (no tz home exists on the org stack — the declination is recorded in docs/port-notes.md)"
+    error_code: kpi_fence_indeterminate
+    enforcement: service
+    # service-only justification: the discriminator is a code-side
+    # declaration comparison (registry fence vs render fence) before any
+    # query runs; there is no SQL shape that can express "compare against
+    # the declaration, not the result".
+
+  # ---- the slowdown ladder (DG-3) ---------------------------------------------
+
+  - id: R-DG3
+    name: slowdown_ladder_cron_only
+    when: cron send (never manual send)
+    assert: "on the CRON path only: if NO active recipient of the digest has logged in within the cadence window (daily 2d / weekly 7d / monthly 1m / quarterly 3m), the digest degrades one rung daily -> weekly -> monthly -> quarterly (quarterly stays; there is no reverse rung — nothing ever speeds a digest back up). The engagement signal is sapiens users.last_login read through the fail-closed recipient port (NOT a login-log table — the cycle doc's identity.UserLog mapping re-pointed). A manual Send Now never degrades anything. next_run_date advances on every send regardless"
+    error_code: slowdown_signal_unavailable
+    enforcement: service
+
+  # ---- the cron: a plain pull (DG-4, DG-13) -----------------------------------
+
+  - id: R-DG4
+    name: pull_cron_due_date_queue
+    when: daily send sweep
+    assert: "the due-date column IS the queue: the sweep searches next_run_date <= today AND state = activated, claiming due digests FOR UPDATE SKIP LOCKED (pickup_lock: true — two sweeps must not double-send). NO self-arming trigger exists anywhere (the EVM2 counter-example). A mail-delivery failure leaves next_run_date UNADVANCED (the digest retries whole next day). DECIDED DELTA vs upstream: the loop does NOT die mid-run on a per-digest failure — one digest's non-mail error is logged, audited, and isolated (the sweep continues to later digests); per-digest batches commit independently (commit_per_batch)"
+    error_code: digest_send_conflict
+    enforcement: service
+
+  - id: R-DG13
+    name: next_run_date_spine
+    when: create digest, change periodicity, complete send loop
+    assert: "next_run_date is nullable-with-meaning (NULL = never mailed); it is filled at create and reset on the periodicity change from the cadence delta (today + 1d/1w/1m/3mo, UTC), and advanced ONLY at the end of a successful send loop — never before, never by a partial failure. The column plus state is the scheduler's entire state: nothing else arms or defers a digest"
+    error_code: next_run_date_violation
+    enforcement: service
+
+  # ---- the mail: RFC 8058 + enqueue-as-done (DG-7, DG-8, DG-9) -----------------
+
+  - id: R-DG7
+    name: unsubscribe_is_hmac_capability
+    when: one-click unsubscribe POST, self-service unsubscribe
+    assert: "the one-click unsubscribe is a Tier A HMAC action link (ADR-0018/ADR-0019): POST-form endpoint on the host's bare public-route class, token = HMAC over (digest_id, user_id, expiry) compared consteq (timing-safe), WITH MANDATORY EXPIRY — the recorded delta vs Odoo's never-expiring token (links regenerate per mail, so expiry costs nothing and bounds replay). The endpoint returns a bare 200 with no body (RFC 8058) and is IDEMPOTENT (a second POST on an unsubscribed row is a no-op success). Verify is throttled. DKIM/domain posture is a named OPS DEPENDENCY of this leg — one-click headers only function on DKIM-signed mail; it is not enforceable here and is recorded as an ops requirement"
+    error_code: unsubscribe_token_invalid
+    enforcement: service
+
+  - id: R-DG8
+    name: rfc8058_headers_rides_mail
+    when: enqueue digest mail
+    assert: "digest's notion of done is ENQUEUE (state outgoing into the mail queue — the 'queued' != sent family, one step removed): the per-recipient mail row carries List-Unsubscribe + List-Unsubscribe-Post: List-Unsubscribe=One-Click (+ X-Auto-Response-Suppress: OOF) through backbone-mail's per-mail custom headers parameter end to end. The unsubscribe URL in the header uses the CORRECT RFC 8058 spelling — Odoo's shipped `unsubscribe_oneclik` typo does NOT survive (recorded deviation: links are regenerated per mail, so no mailed link can break)"
+    error_code: digest_mail_enqueue_failed
+    enforcement: service
+
+  - id: R-DG9
+    name: set_periodicity_is_post
+    when: change digest cadence
+    assert: "upstream's set_periodicity is a MUTATING GET — banned here by ADR-0019 rule 1. The cadence-change verb is a POST with a value whitelist (daily/weekly/monthly/quarterly else typed refusal); the emailed preference link posts to it. The whitelist check is the only upstream guard that ports"
+    error_code: periodicity_value_refused
+    enforcement: service
+
+  # ---- the growth loop (DG-10) -------------------------------------------------
+
+  - id: R-DG10
+    name: auto_subscribe_growth_loop
+    when: sapiens.user.created integration event
+    assert: "every newly-created INTERNAL user is subscribed to the configured default digest when both config keys are set (digest.default_digest_emails + digest.default_digest_id) — the trigger is the sapiens.user.created integration event on the host bus (there is NO sapiens Cargo edge and NO create-path interception here; the host relay delivers the fact, digest exposes the subscribe verb). The internal-user predicate is host-injected through the fail-closed recipient port: unwired port or non-internal user = LOUD refusal, never a silent skip. The first digest a fresh recipient receives carries the unsubscribe leg VISIBLY"
+    error_code: auto_subscribe_refused
+    enforcement: service
+
+  # ---- the fence (DG-12, DG-6) ---------------------------------------------------
+
+  - id: R-DG12
+    name: per_company_digests_family_reads_through_parent
+    when: any read of digests, subscriptions, kpi enablement
+    assert: "digest_digests is RLS-fenced strict with NOT NULL company_id (the DG-6 closing — the env.company fallback does not port); the fence-none family members (subscriptions, kpi enablement, tip consumption) carry NO company column by ruling and are read ONLY through their parent digest, so every supported enumeration inherits the parent's company axis: a company-A operator cannot enumerate company-B digests or their subscriptions/enablement. digest_tips is deliberately SHARED (world carousel content, no tenant axis)"
+    error_code: cross_company_digest_read
+    enforcement: both
+    # db: the RLS policy + NOT NULL on digest_digests (the probe's substrate).
+    # service: the read-through-parent contract for the fence-none children
+    # (bare cross-parent enumeration is not a supported path).
+
+  # ---- the tips carousel (EBT instance, EP-4) -----------------------------------
+
+  - id: R-DGT1
+    name: tip_stored_unsanitized_consumed_after_enqueue
+    when: render digest for recipient
+    assert: "tip_description is stored AS AUTHORED and html-sanitized AT RENDER TIME (the sanitizer choice is recorded in docs/port-notes.md — no sanitizer exists in the mail stack yet); the carousel pick is the lowest-sequence unconsumed group-gated tip; the consumption marker is appended only after the per-recipient mail row is successfully ENQUEUED (this module's done) — Odoo burns the tip BEFORE the enqueue, and that weaker order does not port (recorded deviation)"
+    error_code: tip_render_violation
+    enforcement: service
+
+triggers: []
+# (none at the ORM layer — Odoo's create/write side-effect ladder does not
+#  port as triggers: next_run_date fill/reset is the create/update verb's
+#  job (R-DG13); the auto-subscribe growth loop arrives as a HOST-BUS
+#  integration event (sapiens.user.created) driven into the subscribe verb
+#  (R-DG10), not as a create interception on another module's table; the
+#  slowdown ladder and the sweep are the cron body (R-DG3/R-DG4); tip
+#  consumption is the render path (R-DGT1).)

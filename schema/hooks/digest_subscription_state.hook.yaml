@@ -1,0 +1,40 @@
+# =============================================================================
+# digest_subscription_state — DigestSubscription.state (machine #2; ADR-0016
+#   hand_set). Split into its own per-entity hook file because the validator
+#   resolves a field's `state_machine:` ref against per-entity hook names.
+#
+# HAND-SET lifecycle: unsubscribe is the RFC 8058 one-click edge (a Tier A
+# HMAC action-link POST — the token is the authentication; resubscribe is
+# the declared reverse edge (the self-service / manager re-join verb).
+#
+# IDEMPOTENCY IS THE POINT (the wave DoD probes it): the unsubscribe ROUTE
+# answers an already-unsubscribed row with a bare 200 no-op — the machine's
+# edges describe first-transition semantics only; a repeated POST never
+# errors, never re-stamps unsubscribed_at, and never re-fires the audit
+# event. The tombstone row (rather than a delete) is what makes the second
+# POST decidable from data.
+# =============================================================================
+
+name: digest_subscription_state
+model: DigestSubscription
+
+states:
+  field: state
+  values:
+    subscribed:
+      initial: true
+    unsubscribed:
+      final: true   # the machine's resting outcome (the lint floor demands one); NOT irreversibility — resubscribe re-enters from it below
+
+  # NOTE: `transitions` nests UNDER `states:` (the parser scopes it there);
+  # at top level it is silently ignored — the generated Transition enum comes
+  # out empty and the module does not compile.
+  transitions:
+    unsubscribe:
+      from: subscribed
+      to: unsubscribed
+      message: "The RFC 8058 one-click edge (or the self-service unsubscribe verb): stamps unsubscribed_at, fires the digest_unsubscribed audit event. A repeated POST with a valid token on an already-unsubscribed row is a NO-OP success — never an error, never a re-stamp."
+    resubscribe:
+      from: unsubscribed
+      to: subscribed
+      message: "The re-join edge: clears unsubscribed_at, re-enters the recipient set. There is no ladder consequence — the slowdown ladder degrades the DIGEST's cadence, never a subscription's state."

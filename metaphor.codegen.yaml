@@ -1,0 +1,103 @@
+# Codegen policy for digest.
+#
+# `user_owned` globs are hand-written files that live inside generator-owned trees but are
+# NOT schema-derived. `metaphor schema generate [--force]` skips them wholesale (never reads,
+# merges, or deletes them). Everything else in src/ is regenerated from schema/models.
+#
+# Re-exports/declarations that must sit alongside generated code live inside
+# `// <<< CUSTOM ... // END CUSTOM` markers (application/service/mod.rs, lib.rs)
+# and are preserved by the marker mechanism, not listed here.
+#
+# Declared BEFORE any file lands (the regen-safety contract): a landing
+# without the declaration is clobbered on the next regen; a declaration
+# without the file is the dangling class removed by review — later seats
+# extend this list on the same contract, declaring each hand file in the
+# same change that lands it.
+
+user_owned:
+  # ---- the module's hand API surface + service seats (src/application/service) --
+  #
+  # The declarative KPI registry (the module's open extension API): the
+  # name-keyed metric registry other modules compose into through the
+  # builder — KpiDefinition with its fence declaration (the out-of-fence
+  # render drop's ONLY input) + the KpiComputer trait. The registry is
+  # CODE, not a table; digest_digest_kpis rows only reference its keys.
+  - "src/application/service/kpi_registry.rs"
+
+  # The module's typed error surface (the MailDeliveryException port, the
+  # per-digest isolation delta, the no-oracle unsubscribe refusal).
+  - "src/application/service/digest_error.rs"
+
+  # The outbound mail seam: backbone-mail's public message_post + queue
+  # enqueue (with the per-mail RFC 8058 headers parameter) behind a trait,
+  # with the recording test double (the survey event-sink precedent).
+  - "src/application/service/digest_mail_seam.rs"
+
+  # The two base KPI compute functions (Connected Users on sapiens
+  # users.last_login scoped through organization_users active membership;
+  # Messages Sent on messaging.mail_messages) — registry computers, fence-
+  # declared CompanyData / SharedData respectively.
+  - "src/application/service/base_kpis.rs"
+
+  # The RFC 8058 one-click unsubscribe engine: Tier A HMAC token with
+  # mandatory expiry, constant-time verify, no-oracle refusal, idempotent
+  # re-POST, verify-failure lockout.
+  - "src/application/service/unsubscribe_service.rs"
+
+  # The fail-closed recipient-context port — the module's ONLY window onto
+  # sapiens identity facts (internal predicate, last-login recency, active
+  # company, tip group keys): the denying default, the swappable slot, and
+  # the standard SQL adapter the host installs. Zero sapiens Cargo edge.
+  - "src/application/service/engagement_port.rs"
+
+  # The digest-row verbs (create with the next_run_date fill, the
+  # POST-with-whitelist cadence change, registry-validated KPI enablement,
+  # the idempotent subscribe verb, the 2-value state switch).
+  - "src/application/service/digest_write_service.rs"
+
+  # The per-recipient render engine — where condition 16 lives: the
+  # out-of-fence KPI drop decided from the registry entry's fence
+  # DECLARATION (never row count), 3 UTC windows × previous-period
+  # margins, the ammonia-sanitized carousel tip, the RFC 8058 footer +
+  # headers, and the enqueue-then-consume delivery order.
+  - "src/application/service/digest_render_service.rs"
+
+  # The daily pull sweep + the anti-spam slowdown ladder: due-date-column
+  # queue with FOR UPDATE SKIP LOCKED claims, cron-only degradation
+  # (quarterly floor, no reverse rung), MailDelivery-failure = no advance,
+  # per-digest isolation (the decided delta vs upstream's die-mid-loop),
+  # and the manual Send Now that never degrades.
+  - "src/application/service/digest_cron_service.rs"
+
+  # The growth-loop consumer: sapiens.user.created → subscribe the new
+  # INTERNAL user to the configured default digest; idempotent on the
+  # (digest, user) unique key across at-least-once redelivery.
+  - "src/application/service/user_created_handler.rs"
+
+  # ---- the module chain (bootstrap lib + mod files) -------------------------
+  #
+  # Hand-authored ahead of the generated tree so the crate builds and the
+  # probes run; the hand surface sits inside `// <<< CUSTOM` markers.
+  # When the generated skeleton lands, reconcile: the generated body
+  # replaces the bootstrap skeleton and the marker blocks survive (or the
+  # reconciliation moves these entries into marker-only form).
+  - "src/lib.rs"
+  - "src/application/mod.rs"
+  - "src/application/service/mod.rs"
+  - "src/presentation/mod.rs"
+  - "src/presentation/http/mod.rs"
+
+  # The RFC 8058 public route family: POST one-click (bare 200, no body,
+  # no oracle) + the human GET leg, throttled 120/min per client.
+  - "src/presentation/http/public_routes.rs"
+
+  # Hand-authored module documentation.
+  - "docs/**"
+  - "README.md"
+
+  # The fail-hard probe suite (fresh scratch DB per test; a missing
+  # scratch Postgres panics the suite rather than skipping). The behavior
+  # seats land: the two-company render-drop probes (out-of-fence KPIs do
+  # not render; cross-company invisibility), the idempotent RFC 8058
+  # round-trip, the slowdown ladder, and the due-date sweep claim.
+  - "tests/**"

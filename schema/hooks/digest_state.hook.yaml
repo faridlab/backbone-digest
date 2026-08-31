@@ -1,0 +1,39 @@
+# =============================================================================
+# digest_state — DigestDigest.state (machine #1; ADR-0016 hand_set).
+#   Split into its own per-entity hook file because the validator resolves a
+#   field's `state_machine:` ref against per-entity hook names.
+#
+# HAND-SET lifecycle: action_activate / action_deactivate are typed verbs —
+# Odoo's one-liner actions port verbatim as any->any edges with NO guards,
+# NO tracking, and NO monotonicity requirement (re-activating a deactivated
+# digest is the sanctioned pause/resume path; both values are re-enterable).
+# The cron's due scan (state = activated AND next_run_date <= today) is the
+# only reader that cares about the value.
+#
+# Exactly two values. The EBT-1 family's simplest instance: a hand-set
+# readonly Selection whose entire transition table is two one-liners.
+# =============================================================================
+
+name: digest_state
+model: DigestDigest
+
+states:
+  field: state
+  values:
+    activated:
+      initial: true
+    deactivated:
+      final: true   # the machine's resting outcome (the lint floor demands one); NOT irreversibility — action_activate re-enters from it by the any->any edge below
+
+  # NOTE: `transitions` nests UNDER `states:` (the parser scopes it there);
+  # at top level it is silently ignored — the generated Transition enum comes
+  # out empty and the module does not compile.
+  transitions:
+    action_activate:
+      from: "*"
+      to: activated
+      message: "Resume — the digest re-enters the cron's due scan. Any->any by design (a pause is not a lifecycle event; no audit trail of edges is required upstream and none is invented here)."
+    action_deactivate:
+      from: "*"
+      to: deactivated
+      message: "Pause — the digest leaves the due scan but keeps its next_run_date; re-activating resumes the schedule where it stood. Any->any, no guards."

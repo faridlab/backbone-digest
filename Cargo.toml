@@ -1,0 +1,113 @@
+[package]
+name = "backbone-digest"
+version = "0.1.0"
+edition = "2021"
+description = "KPI digests — the periodic KPI-email engine: a declarative name-keyed KPI registry other modules extend, per-recipient fenced rendering with declared (never row-count) KPI drops, the anti-spam slowdown ladder, a shared tips carousel, and a daily plain-pull cron whose due-date column is the queue (Odoo digest port)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# -----------------------------------------------------------------------------
+# Backbone Framework crates
+#
+# Pulled directly from the public framework repository so this module works
+# anywhere on disk without path fix-up. Pinned to the framework tag current
+# at module creation. Cargo dedupes the git fetch — the repo is only cloned
+# once even though several crates reference it.
+# -----------------------------------------------------------------------------
+backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.11", features = ["postgres"] }
+backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.11" }
+backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.11" }
+backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.11" }
+# The one-click unsubscribe verify (and any future public route family) is
+# throttled at middleware (ADR-0019 Tier A action-link class).
+backbone-rate-limit = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.11" }
+
+# Sibling module consumed through its public service surface: mail owns the
+# outgoing queue the digest sweep enqueues into — the per-recipient mail row
+# carries the RFC 8058 one-click headers through mail's optional per-mail
+# headers parameter (MailSendRequest.headers, end to end since v0.2.7).
+# Pinned tag-equal like every sibling dep; the queue's own outbox staging is
+# mail's concern (digest owns no outbox schema).
+backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.7" }
+
+# Sibling modules NOT consumed by design — recorded here so no later seat
+# adds them casually:
+#  - backbone-sapiens: zero Cargo edge. The internal-user predicate, the
+#    last-login slowdown signal, and company membership are host-injected
+#    through the fail-closed recipient port (engagement_port.rs); the
+#    growth-loop trigger (sapiens.user.created) arrives on the HOST's
+#    integration bus, driven by the host relay into the subscribe verb.
+#  - backbone-portal / any website-routing host: banned by the dep-edge
+#    substitution ruling — the one-click endpoint mounts on the host's bare
+#    public-route class, never on a portal edge from this crate.
+
+# Core async runtime and serialization
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Database (PostgreSQL primary)
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
+
+# HTTP framework (Axum)
+axum = { version = "0.7", features = ["macros"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Validation
+validator = { version = "0.16", features = ["derive"] }
+
+# The one-click unsubscribe token (ADR-0018 Tier A): HMAC-SHA256 MAC over
+# (digest_id, user_id, expiry) with a constant-time compare — the module's
+# only crypto surface.
+hmac = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+
+# The tip sanitizer (R-DGT1): digest_tips.tip_description is stored AS
+# AUTHORED and html-sanitized AT RENDER TIME. No sanitizer exists in the
+# mail stack — ammonia is this module's recorded choice (a strict
+# allowlist builder; strips scripts, event handlers, and unknown tags).
+ammonia = "4"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Configuration
+config = "0.14"
+serde_yaml = "0.9"
+
+[features]
+default = []
+events = []
+auth = []
+grpc = []
+openapi = []
+validation = []
+
+[dev-dependencies]
+tempfile = "3.0"
+tokio-test = "0.4"
+mockall = "0.12"
+pretty_assertions = "1.0"
+
+# Integration testing framework — public-route probes hit the router
+# in-process via tower's ServiceExt::oneshot.
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+jsonwebtoken = "9.3"
+
+# Test-only: the send sweep enqueues through backbone-mail's public queue
+# write, which stages outbox bus events into messaging.outbox_events — a
+# table the outbox crate owns and migrates itself (the test harness runs
+# that migration; the mailing-module precedent).
+backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.11" }

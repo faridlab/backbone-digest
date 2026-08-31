@@ -1,0 +1,98 @@
+# digest Module - Hooks Index
+# Version: 1
+#
+# Module-level configuration for hooks (lifecycle behaviors).
+# Hooks define: state machines, rules, permissions, triggers, computed fields.
+#
+# Hook files:
+#   digest.hook.yaml                  the R-DG* rules with enforcement loci and
+#                                     the lifecycle declarations for every
+#                                     stateless entity
+#   digest_state.hook.yaml            machine #1 — DigestDigest.state (the
+#                                     2-value pause/resume switch)
+#   digest_subscription_state.hook.yaml machine #2 — DigestSubscription.state
+#                                     (the RFC 8058 tombstone edge + resubscribe)
+#
+# This index carries: audit critical events, the ZERO-outbox-event
+# declaration, and the ONE scheduled job (the daily plain pull).
+
+module: digest
+version: 1
+
+# Import all hook files (informational — discovery is a recursive glob,
+# but keeping the list accurate helps readers).
+imports:
+  - digest.hook.yaml
+  - digest_state.hook.yaml
+  - digest_subscription_state.hook.yaml
+
+# =============================================================================
+# Module-level configuration
+# =============================================================================
+config:
+  audit:
+    retention_days: 365
+    critical_events:
+      - digest_email_sent          # spec DigestEmailSent — per-recipient mail row enqueued (the module's done)
+      - digest_slowdown_degraded   # spec DigestSlowdownDegraded — the anti-spam ladder fired one rung (cron path only)
+      - digest_unsubscribed        # spec DigestUnsubscribed — the RFC 8058 Tier A edge (or self-service unsubscribe)
+      - digest_user_auto_subscribed # spec DigestUserAutoSubscribed — the growth loop subscribed a fresh internal user
+
+  notifications:
+    email_enabled: false
+    sms_enabled: false
+    push_enabled: false
+
+# =============================================================================
+# Shared domain events
+# =============================================================================
+# ZERO digest-owned outbox events by design. The module owns NO outbox
+# schema (the host outbox_schemas list is untouched):
+#  - OUTBOUND mail is an ENQUEUE into backbone-mail's queue (its rows, its
+#    outbox staging, its send cron) — the only outbound fact digest owns is
+#    the audit row digest_email_sent;
+#  - INBOUND, the growth loop's fact (sapiens.user.created) arrives on the
+#    HOST's integration bus (source_context "sapiens", aggregate_id = user
+#    id) — the host relay drives digest's subscribe verb; digest subscribes
+#    to nothing itself and stages no events of its own.
+events: {}
+
+# =============================================================================
+# Scheduled jobs (ADR-0020 postures)
+# =============================================================================
+# Exactly ONE job — the daily plain pull (upstream's ir_cron_digest_
+# scheduler_action). The due-date column IS the queue: the claim searches
+# next_run_date <= today AND state = activated — NO self-arming trigger
+# exists anywhere (the explicit EVM2 counter-example; upstream's own shape,
+# kept). Contrast the mailing sweep's posture: self_arming — THAT queue
+# re-arms on MailingQueuedForSend; THIS one cannot, because nothing in the
+# digest lifecycle publishes an arming fact. The daily interval is not a
+# floor here, it is the whole schedule.
+#
+# Sweep order (each step idempotent, one digest per batch under the claim):
+#   (1) claim due digests FOR UPDATE SKIP LOCKED (state-guarded — only
+#       activated rows due today move);
+#   (2) per digest: slowdown check (cron path only — no recipient logged in
+#       within the cadence window => degrade one rung, audit
+#       digest_slowdown_degraded; signal = users.last_login through the
+#       fail-closed recipient port);
+#   (3) per ACTIVE recipient: render the 3-window KPI table under the
+#       RECIPIENT's own fence (out-of-fence KPIs do not render — decided
+#       from the registry entry's fence declaration, never from row count),
+#       pick + sanitize the carousel tip, enqueue the mail row through
+#       backbone-mail's public queue write with the RFC 8058 headers
+#       (audit digest_email_sent), then append the tip consumption marker;
+#   (4) advance next_run_date by the (possibly degraded) cadence — unless
+#       the enqueue failed as a mail-delivery failure (then deliberately
+#       unadvanced: retry whole next day);
+#   (5) per-digest error isolation: a non-mail failure on one digest is
+#       logged + audited and the sweep CONTINUES (the decided delta vs
+#       upstream's die-mid-loop).
+scheduled_jobs:
+
+  digest-emails:
+    schedule: "41 2 * * *"          # the daily 02:41 sweep (off the :00 mark)
+    handler: "digest::send_due"
+    posture: pull                   # the plain pull — ADR-0020's named exemplar for this exact job
+    commit_policy: commit_per_batch   # per-digest batches; every effect idempotent (claim-guarded advance, tombstone unsubscribe, unique-keyed markers) — bounds the replay window
+    pickup_lock: true               # claims due digests FOR UPDATE SKIP LOCKED — two sweeps must not double-send (the MMB-4 class applied to the due-date queue)

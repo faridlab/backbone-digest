@@ -1,0 +1,99 @@
+# =============================================================================
+# digest tips — the shared carousel (Odoo `digest.tip`) + its per-user
+#   consumption marker (Odoo digest.tip.user_ids m2m).
+#
+# PORT DECISIONS (source: docs/odoo/marketing/digest — cycle 18):
+#  - The carousel is consumption-ordered, not random: lowest sequence among
+#    tips the recipient has NOT consumed and whose group gate they hold.
+#  - tip_description is stored UN-SANITIZED (Odoo's sanitize=False — the
+#    stored-unsanitized-HTML pattern) and MUST be sanitized at render time.
+#    No sanitizer exists in the mail stack yet; the render service picks and
+#    records the sanitizer (docs/port-notes.md carries the decision).
+#  - Consumption timing: the user is appended to the tip's consumption set
+#    only after the per-recipient mail row is successfully ENQUEUED (this
+#    module's notion of done — the mail queue owns delivery). Odoo burns the
+#    tip before even the enqueue; that weaker behavior does not port
+#    (recorded deviation).
+#  - SHARED data (the DG-12 closing): NO company column — every company
+#    renders the same carousel rows; the per-user consumption marker keys on
+#    the user, not on any tenant axis.
+# =============================================================================
+
+models:
+
+  - name: DigestTip
+    collection: digest_tips
+    description: "DigestTip (Odoo digest.tip) — a once-per-user, group-gated usage tip appended to digest emails. SHARED data: no company column, no fence — one global carousel consumed in sequence order. The HTML payload is stored as authored and sanitized at render time (never before)."
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique record id"
+
+      # ---- identity ----------------------------------------------------------
+      sequence:
+        type: integer
+        attributes: ["@default(1)"]
+        description: "Display/consumption order — the render picks the lowest-sequence tip the recipient has not yet consumed (the carousel is ordered, never random)."
+      name:
+        type: string
+        attributes: ["@required", "@max(255)"]
+        description: "Tip title (the record's display name)."
+      tip_description:
+        type: string
+        description: "The tip body HTML (stored as text — the DSL's string; the DDL emits TEXT), stored AS AUTHORED (un-sanitized at rest — the stored-unsanitized-HTML pattern; nothing in this module sanitizes on write) and html-sanitized AT RENDER TIME before it enters any mail. Sanitizing at rest would corrupt authored markup the sanitizer cannot round-trip; sanitizing at render is the load-bearing half of the pair."
+      group_key:
+        type: string?
+        attributes: ["@max(120)"]
+        description: "Visibility gate as a STABLE KEY STRING (the survey certification_badge_key precedent — no identity-module edge exists): the tip renders only for recipients whose key set (resolved through the host-composable recipient-context source, default-closed) contains this key; NULL = visible to everyone. The module never interprets the key's syntax."
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [sequence]
+        description: "The consumption-ordered carousel's scan arm"
+
+  # ===========================================================================
+  # DigestTipUser — Odoo digest.tip.user_ids (the CONSUMPTION marker m2m —
+  # NOT recipients: appending a user here means they have SEEN the tip; the
+  # render's exclusion domain is exactly this table's complement). A
+  # first-class junction entity (the mailing subscription precedent): the
+  # generator's m2m emission lands unqualified tables, so the junction is a
+  # plain model with a logical uuid ref and digest-schema residency.
+  # ===========================================================================
+  - name: DigestTipUser
+    collection: digest_tip_users
+    description: "DigestTipUser (Odoo digest.tip.user_ids) — the consumption marker: (tip, user) rows saying the user has already received this tip. The render picks the lowest-sequence tip with NO row here for the recipient. Fence-none by ruling: keyed by user, no tenant axis."
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique record id"
+      tip_id:
+        type: uuid
+        attributes: ["@foreign_key(DigestTip.digest_tips)", "@indexed"]
+        description: "The consumed tip (relation-driven FK, ON DELETE CASCADE)."
+      user_id:
+        type: uuid
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "The consuming recipient # logical ref sapiens.User.id (no DB constraint)."
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    relations:
+      tip:
+        type: DigestTip
+        attributes: ["@one", "@foreign_key(tip_id)", "@on_delete(cascade)"]
+        description: "The consumed tip (real FK digest.digest_tip_users.tip_id -> digest.digest_tips, cascade)"
+
+    indexes:
+      - type: unique
+        fields: [tip_id, user_id]
+        description: "Consumption is a set — one row per (tip, user), ever"
