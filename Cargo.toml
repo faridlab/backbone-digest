@@ -16,13 +16,13 @@ path = "src/lib.rs"
 # at module creation. Cargo dedupes the git fetch — the repo is only cloned
 # once even though several crates reference it.
 # -----------------------------------------------------------------------------
-backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.15", features = ["postgres"] }
-backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.15" }
-backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.15" }
-backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.15" }
+backbone-core = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.16", features = ["postgres"] }
+backbone-orm = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.16" }
+backbone-auth = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.16" }
+backbone-messaging = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.16" }
 # The one-click unsubscribe verify (and any future public route family) is
 # throttled at middleware (ADR-0019 Tier A action-link class).
-backbone-rate-limit = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.15" }
+backbone-rate-limit = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.16" }
 
 # Sibling module consumed through its public service surface: mail owns the
 # outgoing queue the digest sweep enqueues into — the per-recipient mail row
@@ -30,7 +30,7 @@ backbone-rate-limit = { git = "https://github.com/faridlab/backbone-framework", 
 # headers parameter (MailSendRequest.headers, end to end since v0.2.7).
 # Pinned tag-equal like every sibling dep; the queue's own outbox staging is
 # mail's concern (digest owns no outbox schema).
-backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.8" }
+backbone-mail = { git = "https://github.com/faridlab/backbone-mail", tag = "v0.2.9" }
 
 # Sibling modules NOT consumed by design — recorded here so no later seat
 # adds them casually:
@@ -110,4 +110,4 @@ jsonwebtoken = "9.3"
 # write, which stages outbox bus events into messaging.outbox_events — a
 # table the outbox crate owns and migrates itself (the test harness runs
 # that migration; the mailing-module precedent).
-backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.15" }
+backbone-outbox = { git = "https://github.com/faridlab/backbone-framework", tag = "v2.7.16" }
