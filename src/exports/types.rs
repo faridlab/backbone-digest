@@ -52,7 +52,6 @@ pub struct DigestDigestDto {
     pub periodicity: DigestPeriodicity,
     pub next_run_date: Option<NaiveDate>,
     pub state: DigestState,
-    pub company_id: Uuid,
     pub metadata: serde_json::Value,
 }
 

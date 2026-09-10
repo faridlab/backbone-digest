@@ -172,8 +172,9 @@ impl DigestModule {
 
     /// The daily-pull sweep + manual Send Now engine. The sweep is the
     /// `digest::send_due` cron handler body — the host schedules it
-    /// (02:41 daily) on a connection that may read every company's due
-    /// digests (the cron-pool posture; see docs/port-notes.md).
+    /// (02:41 daily) on a cron pool that reads every due digest regardless
+    /// of any request-scoped org fence (the cron-pool posture; see
+    /// docs/port-notes.md).
     pub fn cron_service(&self) -> &Arc<application::service::DigestCronService> {
         &self.cron_service
     }

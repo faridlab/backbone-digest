@@ -107,7 +107,6 @@ pub struct DigestRow {
     /// NULL = never mailed (R-DG13's nullable-with-meaning spine).
     pub next_run_date: Option<NaiveDate>,
     pub state: String,
-    pub company_id: Uuid,
 }
 
 impl DigestRow {
@@ -128,26 +127,25 @@ impl DigestWriteService {
     }
 
     /// Create a digest; `next_run_date` is filled at create from the
-    /// cadence delta (R-DG13). State starts `activated`.
-    #[allow(clippy::too_many_arguments)]
+    /// cadence delta (R-DG13). State starts `activated`. The module ships
+    /// no tenancy axis (ADR-0029): org scoping of the new row is the
+    /// composing service's decorator's concern.
     pub async fn create_digest(
         &self,
         name: &str,
-        company_id: Uuid,
         periodicity: DigestPeriodicity,
         today: NaiveDate,
     ) -> Result<Uuid, DigestError> {
         let id = Uuid::new_v4();
         sqlx::query(
             r#"INSERT INTO digest.digest_digests
-                   (id, name, periodicity, next_run_date, state, company_id)
-               VALUES ($1, $2, $3::digest_periodicity, $4, 'activated', $5)"#,
+                   (id, name, periodicity, next_run_date, state)
+               VALUES ($1, $2, $3::digest_periodicity, $4, 'activated')"#,
         )
         .bind(id)
         .bind(name)
         .bind(periodicity.as_str())
         .bind(periodicity.advance(today))
-        .bind(company_id)
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -279,21 +277,20 @@ impl DigestWriteService {
 
     /// Read one digest row.
     pub async fn get_digest(&self, digest_id: Uuid) -> Result<Option<DigestRow>, DigestError> {
-        let row = sqlx::query_as::<_, (Uuid, String, String, Option<NaiveDate>, String, Uuid)>(
-            r#"SELECT id, name, periodicity::text, next_run_date, state::text, company_id
+        let row = sqlx::query_as::<_, (Uuid, String, String, Option<NaiveDate>, String)>(
+            r#"SELECT id, name, periodicity::text, next_run_date, state::text
                FROM digest.digest_digests WHERE id = $1"#,
         )
         .bind(digest_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(id, name, p, next_run_date, state, company_id)| DigestRow {
+        Ok(row.map(|(id, name, p, next_run_date, state)| DigestRow {
             id,
             name,
             periodicity: DigestPeriodicity::parse(&p)
                 .unwrap_or(DigestPeriodicity::Daily),
             next_run_date,
             state,
-            company_id,
         }))
     }
 

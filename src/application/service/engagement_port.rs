@@ -97,10 +97,13 @@ pub trait RecipientContextPort: Send + Sync {
     async fn resolve(&self, user_id: Uuid) -> Result<RecipientContext, RecipientPortError>;
 
     /// Count users of ONE company whose `last_login` falls in
-    /// `[since, until)` — the Connected Users base KPI's source.
+    /// `[since, until)` — the Connected Users base KPI's source. `None`
+    /// resolves to zero (a company-less recipient has no fence to count
+    /// under); the fence declaration normally drops such renders before
+    /// any compute runs.
     async fn count_connected(
         &self,
-        company_id: Uuid,
+        company_id: Option<Uuid>,
         since: DateTime<Utc>,
         until: DateTime<Utc>,
     ) -> Result<i64, RecipientPortError>;
@@ -140,7 +143,7 @@ impl RecipientContextPort for RefusingRecipientContext {
 
     async fn count_connected(
         &self,
-        _company_id: Uuid,
+        _company_id: Option<Uuid>,
         _since: DateTime<Utc>,
         _until: DateTime<Utc>,
     ) -> Result<i64, RecipientPortError> {
@@ -197,7 +200,7 @@ impl RecipientContextPort for CannedRecipientContext {
 
     async fn count_connected(
         &self,
-        _company_id: Uuid,
+        _company_id: Option<Uuid>,
         _since: DateTime<Utc>,
         _until: DateTime<Utc>,
     ) -> Result<i64, RecipientPortError> {
@@ -256,7 +259,7 @@ impl RecipientContextPort for RecipientContextSlot {
 
     async fn count_connected(
         &self,
-        company_id: Uuid,
+        company_id: Option<Uuid>,
         since: DateTime<Utc>,
         until: DateTime<Utc>,
     ) -> Result<i64, RecipientPortError> {
@@ -282,7 +285,8 @@ impl RecipientContextPort for RecipientContextSlot {
 ///
 /// - `public.users` — email, last_login, status, soft-delete;
 /// - `sapiens.organization_users` — the active-membership predicate
-///   (internal-user) and the active-company resolution;
+///   (internal-user) and the active org-unit resolution (read as the
+///   recipient's company; the column is sapiens' `org_unit_id`);
 /// - `public.user_roles` + `public.roles` — the group-key set (role
 ///   names, the stable uppercase keys).
 pub struct SqlRecipientContext {
@@ -300,7 +304,7 @@ impl RecipientContextPort for SqlRecipientContext {
     async fn resolve(&self, user_id: Uuid) -> Result<RecipientContext, RecipientPortError> {
         let row = sqlx::query_as::<_, (String, Option<DateTime<Utc>>, Option<Uuid>)>(
             r#"SELECT u.email, u.last_login,
-                      (SELECT ou.organization_id
+                      (SELECT ou.org_unit_id
                        FROM sapiens.organization_users ou
                        WHERE ou.user_id = u.id AND ou.status = 'active'
                          AND (ou.metadata->>'deleted_at') IS NULL
@@ -329,10 +333,12 @@ impl RecipientContextPort for SqlRecipientContext {
 
     async fn count_connected(
         &self,
-        company_id: Uuid,
+        company_id: Option<Uuid>,
         since: DateTime<Utc>,
         until: DateTime<Utc>,
     ) -> Result<i64, RecipientPortError> {
+        // A `None` company binds NULL and matches nothing — the count is
+        // zero, the fail-closed answer for a company-less recipient.
         let (n,) = sqlx::query_as::<_, (i64,)>(
             r#"SELECT count(DISTINCT u.id)
                FROM users u
@@ -340,7 +346,7 @@ impl RecipientContextPort for SqlRecipientContext {
                  ON ou.user_id = u.id
                 AND ou.status = 'active'
                 AND (ou.metadata->>'deleted_at') IS NULL
-                AND ou.organization_id = $1
+                AND ou.org_unit_id = $1
                WHERE u.last_login >= $2 AND u.last_login < $3
                  AND u.status = 'active'
                  AND (u.metadata->>'deleted_at') IS NULL
@@ -407,7 +413,7 @@ mod tests {
         let u = Uuid::new_v4();
         assert!(slot.resolve(u).await.unwrap_err().is_not_wired());
         assert!(slot
-            .count_connected(u, Utc::now(), Utc::now())
+            .count_connected(Some(u), Utc::now(), Utc::now())
             .await
             .unwrap_err()
             .is_not_wired());

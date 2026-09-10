@@ -1,13 +1,15 @@
 //! Condition 16: the out-of-fence KPI drop is decided from the
 //! registry entry's fence DECLARATION, never from row count.
 //!
-//! The two-company witness: company A's digest carries a CompanyData
-//! KPI and a PinnedCompanyData(co_a) KPI. Company A HAS engaged
-//! connected users (nonzero underlying data) — yet a recipient whose
-//! OWN fence is company B gets BOTH keys dropped, while a genuine
-//! zero for an IN-fence recipient renders as `0`, never as a drop.
-//! Under RLS the distinction is unobservable from data; only the
-//! declaration can make it.
+//! The per-recipient witness: one digest carries a CompanyData KPI and a
+//! PinnedCompanyData(co_a) KPI. A recipient WITH an active company renders
+//! the CompanyData KPI under their OWN company; a recipient pinned to
+//! another company drops the pinned key; a company-less recipient fails
+//! CLOSED and drops both company-scoped keys — even though the underlying
+//! data is nonzero. Under RLS the distinction is unobservable from data;
+//! only the declaration can make it. (Which digests a recipient may reach
+//! at all is the composing service's org fence — the module ships no
+//! tenancy axis per ADR-0029 — so no cross-digest witness exists here.)
 
 use std::collections::HashSet;
 
@@ -24,33 +26,31 @@ use backbone_digest::application::service::kpi_registry::{
 use backbone_digest::application::service::{DigestError, DigestPeriodicity, KpiRegistrationError};
 
 use super::common::{
-    seed_mail_message, seed_membership, seed_tip, seed_user, subscription_state, Svc, TestDb,
+    seed_mail_message, seed_membership, seed_org_unit, seed_tip, seed_user, subscription_state,
+    Svc, TestDb,
 };
 
 /// The pure decision table (no DB): the ONLY inputs are the declared
-/// fence and the two company ids.
+/// fence and the recipient's resolved company.
 #[test]
 fn fence_decision_is_declaration_driven_and_fails_closed() {
     let a = Uuid::new_v4();
     let b = Uuid::new_v4();
 
     // Shared data renders for everyone.
-    assert!(KpiFenceDeclaration::SharedData.renders_for(None, None));
-    assert!(KpiFenceDeclaration::SharedData.renders_for(Some(b), Some(a)));
+    assert!(KpiFenceDeclaration::SharedData.renders_for(None));
+    assert!(KpiFenceDeclaration::SharedData.renders_for(Some(b)));
 
-    // Company data renders only on an exact company match...
-    assert!(KpiFenceDeclaration::CompanyData.renders_for(Some(a), Some(a)));
-    assert!(!KpiFenceDeclaration::CompanyData.renders_for(Some(b), Some(a)));
-    // ...and FAILS CLOSED when either fence is unknown (never render on
-    // an unestablishable fence).
-    assert!(!KpiFenceDeclaration::CompanyData.renders_for(None, Some(a)));
-    assert!(!KpiFenceDeclaration::CompanyData.renders_for(Some(a), None));
-    assert!(!KpiFenceDeclaration::CompanyData.renders_for(None, None));
+    // Company data renders under the recipient's OWN resolved company...
+    assert!(KpiFenceDeclaration::CompanyData.renders_for(Some(a)));
+    // ...and FAILS CLOSED when the recipient carries no active company
+    // (never render on an unestablishable fence).
+    assert!(!KpiFenceDeclaration::CompanyData.renders_for(None));
 
     // Pinned data renders only for the pinned company's recipients.
-    assert!(KpiFenceDeclaration::PinnedCompanyData(a).renders_for(Some(a), Some(b)));
-    assert!(!KpiFenceDeclaration::PinnedCompanyData(a).renders_for(Some(b), Some(a)));
-    assert!(!KpiFenceDeclaration::PinnedCompanyData(a).renders_for(None, Some(a)));
+    assert!(KpiFenceDeclaration::PinnedCompanyData(a).renders_for(Some(a)));
+    assert!(!KpiFenceDeclaration::PinnedCompanyData(a).renders_for(Some(b)));
+    assert!(!KpiFenceDeclaration::PinnedCompanyData(a).renders_for(None));
 }
 
 /// The registry contract: prefix refusal is typed; a duplicate name is
@@ -138,8 +138,8 @@ async fn out_of_fence_kpis_drop_by_declaration_not_row_count() {
     svc.install_sql_port();
     let now = Utc::now();
 
-    let co_a = Uuid::new_v4();
-    let co_b = Uuid::new_v4();
+    let co_a = seed_org_unit(&db.pool, "CO-A", "Company A").await;
+    let co_b = seed_org_unit(&db.pool, "CO-B", "Company B").await;
 
     // A KPI pinned to company A (an out-of-the-base-pair registration —
     // the module's open extension surface).
@@ -165,10 +165,10 @@ async fn out_of_fence_kpis_drop_by_declaration_not_row_count() {
         })
         .expect("register pinned probe KPI");
 
-    // Company A's digest with all three fences enabled.
+    // The digest with all three fences enabled.
     let digest = svc
         .write
-        .create_digest("Fence Digest", co_a, DigestPeriodicity::Daily, now.date_naive())
+        .create_digest("Fence Digest", DigestPeriodicity::Daily, now.date_naive())
         .await
         .expect("create digest");
     for key in [KPI_CONNECTED_USERS, "kpi_probe_pinned_co", KPI_MESSAGES_SENT] {
@@ -186,20 +186,24 @@ async fn out_of_fence_kpis_drop_by_declaration_not_row_count() {
         "unknown-key refusal must carry kpi_not_registered, got {refused:?}"
     );
 
-    // alice: member of company A (in-fence), logged in within the
-    // window — company A's connected data is NONZERO.
+    // alice: member of company A, logged in within the window — company
+    // A's connected data is NONZERO.
     let alice = seed_user(&db.pool, "alice@a.test", Some(now - Duration::hours(1))).await;
     seed_membership(&db.pool, co_a, alice).await;
-    // bob: member of company B — his OWN fence is out-of-company for
-    // this digest.
+    // bob: member of company B, logged in too — his CompanyData KPI
+    // computes under HIS OWN company (company B's connected data).
     let bob = seed_user(&db.pool, "bob@b.test", Some(now - Duration::hours(1))).await;
     seed_membership(&db.pool, co_b, bob).await;
-    // Shared volume both companies' recipients can see.
+    // dave: NO organization membership at all — the company-scoped fence
+    // cannot be established for him, and must fail CLOSED.
+    let dave = seed_user(&db.pool, "dave@none.test", Some(now - Duration::hours(1))).await;
+    // Shared volume every recipient can see.
     seed_mail_message(&db.pool, now - Duration::hours(1)).await;
     seed_mail_message(&db.pool, now - Duration::hours(2)).await;
 
     assert!(svc.write.subscribe_user(digest, alice, None).await.expect("subscribe alice"));
     assert!(svc.write.subscribe_user(digest, bob, None).await.expect("subscribe bob"));
+    assert!(svc.write.subscribe_user(digest, dave, None).await.expect("subscribe dave"));
 
     // The XSS-carrying tip (stored as authored; sanitized at render).
     let tip = seed_tip(
@@ -220,7 +224,7 @@ async fn out_of_fence_kpis_drop_by_declaration_not_row_count() {
         )
         .await
         .expect("recipients");
-    assert_eq!(recipients.len(), 2, "both subscriptions are active");
+    assert_eq!(recipients.len(), 3, "all subscriptions are active");
 
     let mut plans = std::collections::BTreeMap::new();
     for recipient in &recipients {
@@ -233,46 +237,63 @@ async fn out_of_fence_kpis_drop_by_declaration_not_row_count() {
     }
     let alice_plan = &plans[&alice];
     let bob_plan = &plans[&bob];
+    let dave_plan = &plans[&dave];
 
-    // ---- alice (in-fence): everything renders -------------------------
+    // ---- alice (company A member): everything renders ------------------
     assert!(alice_plan.rendered.contains(&KPI_CONNECTED_USERS.to_string()));
     assert!(alice_plan.rendered.contains(&"kpi_probe_pinned_co".to_string()));
     assert!(alice_plan.rendered.contains(&KPI_MESSAGES_SENT.to_string()));
     assert!(
         alice_plan.dropped_out_of_fence.is_empty(),
-        "in-fence recipient must see every enabled KPI: {:?}",
+        "a recipient with a resolved company must see every enabled KPI: {:?}",
         alice_plan.dropped_out_of_fence
     );
     assert!(alice_plan.dropped_unavailable.is_empty());
 
-    // ---- bob (out-of-fence): dropped BY DECLARATION --------------------
+    // ---- bob (company B member): the PINNED key drops, by declaration --
     // Company A HAS connected logged-in users (alice) — the underlying
-    // data is nonzero — yet bob's render drops both fenced keys. Under
-    // RLS an out-of-fence read is zero rows; only the declaration makes
-    // this drop (a row-count rule could never distinguish it).
-    assert!(!bob_plan.rendered.contains(&KPI_CONNECTED_USERS.to_string()));
+    // pinned data is nonzero — yet bob's render drops the pinned key: his
+    // resolved company is B, not the pinned A. Under RLS an out-of-fence
+    // read is zero rows; only the declaration makes this drop (a row-count
+    // rule could never distinguish it). His CompanyData KPI RENDERS — it
+    // computes under HIS OWN company's fence.
+    assert!(bob_plan.rendered.contains(&KPI_CONNECTED_USERS.to_string()));
     assert!(!bob_plan.rendered.contains(&"kpi_probe_pinned_co".to_string()));
     assert!(
-        bob_plan.dropped_out_of_fence.contains(&KPI_CONNECTED_USERS.to_string()),
-        "CompanyData key must drop for the out-of-fence recipient"
-    );
-    assert!(
         bob_plan.dropped_out_of_fence.contains(&"kpi_probe_pinned_co".to_string()),
-        "PinnedCompanyData(co_a) key must drop for the out-of-fence recipient"
+        "PinnedCompanyData(co_a) key must drop for the company-B recipient"
     );
     // Shared data still renders for bob.
     assert!(bob_plan.rendered.contains(&KPI_MESSAGES_SENT.to_string()));
-    // The drop lists only the two fenced keys.
-    assert_eq!(bob_plan.dropped_out_of_fence.len(), 2);
+    // The drop lists only the pinned key.
+    assert_eq!(bob_plan.dropped_out_of_fence.len(), 1);
+
+    // ---- dave (company-less): BOTH company-scoped keys fail CLOSED -----
+    // Dave HAS underlying connected data (he is logged in) — yet both
+    // company-scoped keys drop: with no resolved company the fence cannot
+    // be established, and an unestablishable fence never renders.
+    assert!(!dave_plan.rendered.contains(&KPI_CONNECTED_USERS.to_string()));
+    assert!(!dave_plan.rendered.contains(&"kpi_probe_pinned_co".to_string()));
+    assert!(
+        dave_plan.dropped_out_of_fence.contains(&KPI_CONNECTED_USERS.to_string()),
+        "CompanyData key must fail closed for the company-less recipient"
+    );
+    assert!(
+        dave_plan.dropped_out_of_fence.contains(&"kpi_probe_pinned_co".to_string()),
+        "PinnedCompanyData key must fail closed for the company-less recipient"
+    );
+    // Shared data still renders for dave.
+    assert!(dave_plan.rendered.contains(&KPI_MESSAGES_SENT.to_string()));
+    assert_eq!(dave_plan.dropped_out_of_fence.len(), 2);
 
     // ---- genuine zero renders as a value, never a drop -----------------
     // A THIRD company nobody logged into: its connected metric is a
     // genuine ZERO (count_connected finds no last_login in any window)
     // — and zero RENDERS, it is never a drop.
-    let co_c = Uuid::new_v4();
+    let co_c = seed_org_unit(&db.pool, "CO-C", "Zero Company").await;
     let digest_b = svc
         .write
-        .create_digest("Zero Digest", co_c, DigestPeriodicity::Daily, now.date_naive())
+        .create_digest("Zero Digest", DigestPeriodicity::Daily, now.date_naive())
         .await
         .expect("create digest B");
     svc.write.enable_kpi(digest_b, KPI_CONNECTED_USERS).await.expect("enable connected on B");
@@ -402,11 +423,13 @@ async fn unavailable_sources_drop_the_kpi_never_the_mail() {
     let svc = Svc::new(db.pool.clone());
     // Deliberately NO port install: every identity fact refuses.
 
-    let co = Uuid::new_v4();
     let now = Utc::now();
+    // A canned company id (never persisted — the canned port answers
+    // from memory, no organization row involved).
+    let co = Uuid::new_v4();
     let digest = svc
         .write
-        .create_digest("Unwired Digest", co, DigestPeriodicity::Daily, now.date_naive())
+        .create_digest("Unwired Digest", DigestPeriodicity::Daily, now.date_naive())
         .await
         .expect("create digest");
     svc.write.enable_kpi(digest, KPI_CONNECTED_USERS).await.expect("enable connected");

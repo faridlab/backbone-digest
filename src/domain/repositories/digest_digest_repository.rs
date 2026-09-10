@@ -7,7 +7,6 @@
 
 use async_trait::async_trait;
 use anyhow::Result;
-use uuid::Uuid;
 
 use crate::domain::entity::{DigestDigest, DigestPeriodicity, DigestState};
 
@@ -47,13 +46,12 @@ pub struct DigestDigestFilter {
     pub name: Option<String>,
     pub periodicity: Option<DigestPeriodicity>,
     pub state: Option<DigestState>,
-    pub company_id: Option<Uuid>,
 }
 
 impl DigestDigestFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.name.is_some() || self.periodicity.is_some() || self.state.is_some() || self.company_id.is_some()
+        self.name.is_some() || self.periodicity.is_some() || self.state.is_some()
     }
 }
 

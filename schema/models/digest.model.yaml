@@ -13,11 +13,12 @@
 #    PORT. The registry API surface is src/application/service/kpi_registry.rs
 #    (user_owned) — other modules register their KPIs there; this table only
 #    stores WHICH registry keys a given digest enables.
-#  - DG-6 — company_id is NOT NULL: the strict fence removes Odoo's
-#    env.company fallback (a no-company digest computing against the sending
-#    user's company). Every digest here has an owning company; the
-#    user<->company axis resolves through sapiens organization_users active
-#    membership via the fail-closed port.
+#  - DG-6 — SUPERSEDED by ADR-0029: the module ships no tenancy axis at
+#    all. The strict company fence this decision once installed is gone;
+#    org scoping is installed by the COMPOSING service's tenancy decorator
+#    (tenancy.yaml + decorator chain), never by the module. The digest's
+#    per-recipient render fence remains a RECIPIENT-level fact (sapiens
+#    organization_users active membership, via the fail-closed port).
 #  - DG-13 — next_run_date is the nullable due-date spine: filled at create
 #    and on periodicity change, advanced only after a successful send loop,
 #    deliberately NOT advanced on a mail-delivery failure (retry next day).
@@ -33,7 +34,7 @@ models:
 
   - name: DigestDigest
     collection: digest_digests
-    description: "DigestDigest (Odoo digest.digest) — one periodic KPI email configuration: WHO receives it (subscription rows), HOW OFTEN (periodicity + the slowdown ladder), WHICH registry KPIs are enabled (digest_digest_kpis rows), and the due-date spine the daily pull cron drains. Company-fenced strict — a digest always belongs to exactly one company (the env.company fallback does not port)."
+    description: "DigestDigest (Odoo digest.digest) — one periodic KPI email configuration: WHO receives it (subscription rows), HOW OFTEN (periodicity + the slowdown ladder), WHICH registry KPIs are enabled (digest_digest_kpis rows), and the due-date spine the daily pull cron drains. Tenant-agnostic (ADR-0029): the composing service's tenancy decorator scopes the rows, not the module."
     fields:
       id:
         type: uuid
@@ -62,10 +63,6 @@ models:
             activated: "Activated"
             deactivated: "Deactivated"
         description: "DG-2 — the 2-value hand-set machine: action_activate / action_deactivate are one-liner any->any verbs with no guards and no tracking; the cron's due scan filters on activated. Simplest machine in the family (EBT-1)."
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Owning company # logical FK organization.Company.id (direct strict fencing, ADR-0010). NOT NULL by the DG-6 closing: the strict fence removes Odoo's env.company fallback — a digest ALWAYS has an owning company, and its KPIs compute against THIS company, never the sending user's."
 
       metadata:
         type: Metadata
@@ -73,9 +70,9 @@ models:
         description: "Audit metadata"
 
     indexes:
-      - type: index
-        fields: [company_id]
-        description: "The fence column's list-filter arm (company-scoped enumeration rides the RLS policy; the index keeps it cheap)"
+      # No tenancy indexes (ADR-0029): the module is tenant-agnostic. The fence
+      # column and its index are gone; any per-unit indexes are installed by
+      # the composing service's tenancy decorator, not declared here.
       - type: index
         fields: [state, next_run_date]
         description: "The cron's due scan: state = activated AND next_run_date <= today (the due-date column IS the queue — no other scheduler state exists)"

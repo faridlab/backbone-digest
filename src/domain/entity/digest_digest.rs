@@ -57,7 +57,6 @@ pub struct DigestDigest {
     pub periodicity: DigestPeriodicity,
     pub next_run_date: Option<NaiveDate>,
     pub(crate) state: DigestState,
-    pub company_id: Uuid,
     #[serde(default)]
     #[sqlx(json)]
     pub metadata: AuditMetadata,
@@ -70,14 +69,13 @@ impl DigestDigest {
     }
 
     /// Create a new DigestDigest with required fields
-    pub fn new(name: String, periodicity: DigestPeriodicity, state: DigestState, company_id: Uuid) -> Self {
+    pub fn new(name: String, periodicity: DigestPeriodicity, state: DigestState) -> Self {
         Self {
             id: Uuid::new_v4(),
             name,
             periodicity,
             next_run_date: None,
             state,
-            company_id,
             metadata: AuditMetadata::default(),
         }
     }
@@ -177,9 +175,6 @@ impl DigestDigest {
                 "next_run_date" => {
                     if let Ok(v) = serde_json::from_value(value) { self.next_run_date = v; }
                 }
-                "company_id" => {
-                    if let Ok(v) = serde_json::from_value(value) { self.company_id = v; }
-                }
                 _ => {} // ignore unknown fields
             }
         }
@@ -234,16 +229,12 @@ impl backbone_orm::EntityRepoMeta for DigestDigest {
     fn column_types() -> std::collections::HashMap<String, String> {
         let mut m = std::collections::HashMap::new();
         m.insert("id".to_string(), "uuid".to_string());
-        m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("periodicity".to_string(), "digest_periodicity".to_string());
         m.insert("state".to_string(), "digest_state".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
         &["name"]
-    }
-    fn company_field() -> Option<&'static str> {
-        Some("company_id")
     }
 }
 
@@ -257,7 +248,6 @@ pub struct DigestDigestBuilder {
     periodicity: Option<DigestPeriodicity>,
     next_run_date: Option<NaiveDate>,
     state: Option<DigestState>,
-    company_id: Option<Uuid>,
 }
 
 impl DigestDigestBuilder {
@@ -285,18 +275,11 @@ impl DigestDigestBuilder {
         self
     }
 
-    /// Set the company_id field (required)
-    pub fn company_id(mut self, value: Uuid) -> Self {
-        self.company_id = Some(value);
-        self
-    }
-
     /// Build the DigestDigest entity
     ///
     /// Returns Err if any required field without a default is missing.
     pub fn build(self) -> Result<DigestDigest, String> {
         let name = self.name.ok_or_else(|| "name is required".to_string())?;
-        let company_id = self.company_id.ok_or_else(|| "company_id is required".to_string())?;
 
         Ok(DigestDigest {
             id: Uuid::new_v4(),
@@ -304,7 +287,6 @@ impl DigestDigestBuilder {
             periodicity: self.periodicity.unwrap_or_default(),
             next_run_date: self.next_run_date,
             state: self.state.unwrap_or_default(),
-            company_id,
             metadata: AuditMetadata::default(),
         })
     }

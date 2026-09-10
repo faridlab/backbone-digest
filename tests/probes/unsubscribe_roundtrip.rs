@@ -22,11 +22,10 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
     let db = TestDb::new("unsub").await;
     let svc = Svc::new(db.pool.clone());
     let now = Utc::now();
-    let co = Uuid::new_v4();
 
     let digest = svc
         .write
-        .create_digest("Unsub Digest", co, DigestPeriodicity::Daily, now.date_naive())
+        .create_digest("Unsub Digest", DigestPeriodicity::Daily, now.date_naive())
         .await
         .expect("create digest");
     let user = seed_user(&db.pool, "unsub@x.test", None).await;
@@ -164,7 +163,7 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
     // so this fresh pair mints and applies independently.
     let digest2 = svc
         .write
-        .create_digest("Other Digest", co, DigestPeriodicity::Weekly, now.date_naive())
+        .create_digest("Other Digest", DigestPeriodicity::Weekly, now.date_naive())
         .await
         .expect("create digest 2");
     let user2 = seed_user(&db.pool, "other@x.test", None).await;

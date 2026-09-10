@@ -15,7 +15,7 @@ use backbone_digest::application::service::digest_render_service::DigestRenderSe
 use backbone_digest::application::service::digest_cron_service::DigestCronService;
 use backbone_digest::application::service::DigestPeriodicity;
 
-use super::common::{digest_cadence, seed_membership, seed_user, Svc, TestDb};
+use super::common::{digest_cadence, seed_membership, seed_org_unit, seed_user, Svc, TestDb};
 
 /// A seam that refuses exactly ONE recipient's mail and records
 /// everything else through the shared recording double (the
@@ -47,13 +47,13 @@ async fn the_ladder_and_the_advance_rules() {
     let now = Utc::now();
     let today = now.date_naive();
     let due_since = today - Duration::days(7);
-    let co = Uuid::new_v4();
+    let co = seed_org_unit(&db.pool, "LADDER", "Ladder Co").await;
 
     // d1: DAILY, recipient NEVER logged in → degrade to weekly, advance
     //     by the NEW cadence, mail still sent.
     let d1 = svc
         .write
-        .create_digest("Ladder Daily", co, DigestPeriodicity::Daily, due_since)
+        .create_digest("Ladder Daily", DigestPeriodicity::Daily, due_since)
         .await
         .expect("create d1");
     let u1 = seed_user(&db.pool, "cold@x.test", None).await;
@@ -64,7 +64,7 @@ async fn the_ladder_and_the_advance_rules() {
     //     advance by daily.
     let d2 = svc
         .write
-        .create_digest("Engaged Daily", co, DigestPeriodicity::Daily, due_since)
+        .create_digest("Engaged Daily", DigestPeriodicity::Daily, due_since)
         .await
         .expect("create d2");
     let u2 = seed_user(&db.pool, "warm@x.test", Some(now - Duration::hours(1))).await;
@@ -79,7 +79,6 @@ async fn the_ladder_and_the_advance_rules() {
         .write
         .create_digest(
             "Floor Quarterly",
-            co,
             DigestPeriodicity::Quarterly,
             today - Duration::days(100),
         )
@@ -94,7 +93,7 @@ async fn the_ladder_and_the_advance_rules() {
     //     whole next day).
     let d4 = svc
         .write
-        .create_digest("Smtp Down", co, DigestPeriodicity::Daily, due_since)
+        .create_digest("Smtp Down", DigestPeriodicity::Daily, due_since)
         .await
         .expect("create d4");
     let u4 = seed_user(&db.pool, "smtp@x.test", Some(now - Duration::hours(1))).await;
@@ -105,7 +104,7 @@ async fn the_ladder_and_the_advance_rules() {
     //     must not degrade it nor advance it.
     let d5 = svc
         .write
-        .create_digest("Manual Only", co, DigestPeriodicity::Daily, due_since)
+        .create_digest("Manual Only", DigestPeriodicity::Daily, due_since)
         .await
         .expect("create d5");
     let u5 = seed_user(&db.pool, "manual@x.test", None).await;
@@ -218,13 +217,11 @@ async fn an_unavailable_signal_holds_the_cadence() {
     let svc = Svc::new(db.pool.clone());
     // NO port install: every identity fact (signal AND resolve) refuses.
     let now = Utc::now();
-    let co = Uuid::new_v4();
 
     let d = svc
         .write
         .create_digest(
             "Signal Digest",
-            co,
             DigestPeriodicity::Daily,
             now.date_naive() - Duration::days(7),
         )

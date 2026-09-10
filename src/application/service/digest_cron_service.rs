@@ -31,11 +31,12 @@
 //!    die-mid-loop): one digest's failure is logged, audited, and left
 //!    due — the sweep CONTINUES to later digests.
 //!
-//! RLS note (operational): the sweep is a SYSTEM job that must see every
-//! company's due digests; `digest_digests` is FORCE RLS-fenced per
-//! request. The sweep therefore runs on the host's cron pool — a
-//! connection under the table owner (the migrations' role), the same
-//! posture every fenced family module's cross-company cron uses.
+//! Scope note (operational): the sweep is a SYSTEM job that must see every
+//! due digest regardless of who the rows belong to. The module ships no
+//! tenancy axis (ADR-0029); in a composed deployment the tables are
+//! org-fenced by the composing service's decorator, so the sweep runs on
+//! the host's cron pool — a connection outside the request-scoped fence
+//! (the table owner's, the migrations' role).
 //!
 //! # The ladder (R-DG3)
 //!
@@ -116,8 +117,8 @@ impl DigestCronService {
 
         loop {
             let mut tx = self.pool.begin().await?;
-            let claimed = sqlx::query_as::<_, (Uuid, String, String, Option<chrono::NaiveDate>, String, Uuid)>(
-                r#"SELECT id, name, periodicity::text, next_run_date, state::text, company_id
+            let claimed = sqlx::query_as::<_, (Uuid, String, String, Option<chrono::NaiveDate>, String)>(
+                r#"SELECT id, name, periodicity::text, next_run_date, state::text
                    FROM digest.digest_digests
                    WHERE state = 'activated'
                      AND next_run_date IS NOT NULL
@@ -132,7 +133,7 @@ impl DigestCronService {
             .fetch_optional(&mut *tx)
             .await?;
 
-            let Some((id, name, p, next_run_date, state, company_id)) = claimed else {
+            let Some((id, name, p, next_run_date, state)) = claimed else {
                 // Due set drained (or everything else is locked by a
                 // concurrent sweep).
                 break;
@@ -143,7 +144,6 @@ impl DigestCronService {
                 periodicity: DigestPeriodicity::parse(&p).unwrap_or(DigestPeriodicity::Daily),
                 next_run_date,
                 state,
-                company_id,
             };
             processed.push(digest.id);
             outcome.claimed += 1;
@@ -294,20 +294,19 @@ impl DigestCronService {
         now: DateTime<Utc>,
     ) -> Result<(usize, usize, usize), DigestError> {
         let Some(digest) = (|| async {
-            let row = sqlx::query_as::<_, (Uuid, String, String, Option<chrono::NaiveDate>, String, Uuid)>(
-                r#"SELECT id, name, periodicity::text, next_run_date, state::text, company_id
+            let row = sqlx::query_as::<_, (Uuid, String, String, Option<chrono::NaiveDate>, String)>(
+                r#"SELECT id, name, periodicity::text, next_run_date, state::text
                    FROM digest.digest_digests WHERE id = $1"#,
             )
             .bind(digest_id)
             .fetch_optional(&self.pool)
             .await?;
-            Ok::<_, DigestError>(row.map(|(id, name, p, next_run_date, state, company_id)| DigestRow {
+            Ok::<_, DigestError>(row.map(|(id, name, p, next_run_date, state)| DigestRow {
                 id,
                 name,
                 periodicity: DigestPeriodicity::parse(&p).unwrap_or(DigestPeriodicity::Daily),
                 next_run_date,
                 state,
-                company_id,
             }))
         })()
         .await?

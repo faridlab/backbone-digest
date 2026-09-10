@@ -2,10 +2,11 @@
 //!
 //! The suite never runs against a shared DB: each test mints
 //! `digest_seat_<marker>_<hex>` on the local scratch Postgres (5433,
-//! postgres/postgres), applies this module's migrations plus the two
-//! sibling sets its SQL adapters read (sapiens identity, messaging
-//! mail rows) and the outbox schema mail's enqueue stages into, runs,
-//! and drops the database.
+//! postgres/postgres), applies this module's migrations plus the
+//! sibling sets its SQL adapters read (the organization spine sapiens'
+//! membership chain builds on, sapiens identity, messaging mail rows)
+//! and the outbox schema mail's enqueue stages into, runs, and drops
+//! the database.
 //!
 //! FAIL-HARD CONTRACT (the survey/mailing harness contract, carried
 //! over): a test that cannot reach its scratch database PANICS —
@@ -151,15 +152,18 @@ impl Drop for TestDb {
 }
 
 /// Apply this module's migrations plus the sibling sets the module's
-/// SQL adapters read (sapiens: users/memberships/roles; mail: the
-/// messaging.mail_messages volume the Messages Sent KPI counts), each
-/// set in its own sorted batch — the order each module's own runner
-/// uses. The outbox schema mail's enqueue stages into is migrated by
-/// the outbox crate itself (the mailing-module precedent).
+/// SQL adapters read (organization: the org-unit spine sapiens'
+/// membership rekey chain requires, including the seeded tenant root;
+/// sapiens: users/memberships/roles; mail: the messaging.mail_messages
+/// volume the Messages Sent KPI counts), each set in its own sorted
+/// batch — the order each module's own runner uses. The outbox schema
+/// mail's enqueue stages into is migrated by the outbox crate itself
+/// (the mailing-module precedent).
 async fn apply_sibling_migrations(pool: &PgPool, marker: &str) -> Result<(), String> {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let dirs = [
         format!("{manifest}/migrations"),
+        format!("{manifest}/../backbone-organization/migrations"),
         format!("{manifest}/../backbone-sapiens/migrations"),
         format!("{manifest}/../backbone-mail/migrations"),
     ];
@@ -256,18 +260,47 @@ pub async fn seed_user(pool: &PgPool, email: &str, last_login: Option<chrono::Da
     id
 }
 
-/// Insert an ACTIVE organization membership (the internal predicate +
-/// the recipient's company fence).
-pub async fn seed_membership(pool: &PgPool, organization_id: Uuid, user_id: Uuid) {
+/// Insert an ACTIVE org-unit membership (the internal predicate; the
+/// recipient port resolves the recipient's company from their active
+/// memberships).
+pub async fn seed_membership(pool: &PgPool, org_unit_id: Uuid, user_id: Uuid) {
     sqlx::query(
-        r#"INSERT INTO sapiens.organization_users (organization_id, user_id, status)
+        r#"INSERT INTO sapiens.organization_users (org_unit_id, user_id, status)
            VALUES ($1, $2, 'active')"#,
     )
-    .bind(organization_id)
+    .bind(org_unit_id)
     .bind(user_id)
     .execute(pool)
     .await
     .expect("seed membership");
+}
+
+/// Create a company-kind node under the tenant root and return its id —
+/// the "company" a probe's memberships hang off. The sapiens membership
+/// kind guard refuses any membership whose org-unit id does not reference
+/// a real organization.org_units node of kind company or branch, so a
+/// probe company must be a real node (its id doubles as the recipient
+/// company id the port resolves).
+pub async fn seed_org_unit(pool: &PgPool, code: &str, name: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    let result = sqlx::query(
+        r#"INSERT INTO organization.org_units (id, kind, parent_id, code, name)
+           SELECT $1, 'company', r.id, $2, $3
+           FROM organization.org_units r
+           WHERE r.kind = 'root'"#,
+    )
+    .bind(id)
+    .bind(code)
+    .bind(name)
+    .execute(pool)
+    .await
+    .expect("seed org unit");
+    assert_eq!(
+        result.rows_affected(),
+        1,
+        "seed org unit: tenant root node missing from the organization spine"
+    );
+    id
 }
 
 /// Insert one email-shaped mail message at `date` (the Messages Sent

@@ -22,42 +22,21 @@
 module: digest
 version: 1
 schema: digest
-description: "digest — the KPI-digest engine: one company-fenced config row per periodic KPI email (recipients, cadence, enabled KPI registry keys), a shared tips carousel consumed per user, a declarative name-keyed KPI registry other modules extend, the anti-spam slowdown ladder, and a daily plain-pull cron whose due-date column is the queue (Odoo digest port)"
+description: "digest — the KPI-digest engine: one config row per periodic KPI email (recipients, cadence, enabled KPI registry keys), a shared tips carousel consumed per user, a declarative name-keyed KPI registry other modules extend, the anti-spam slowdown ladder, and a daily plain-pull cron whose due-date column is the queue (Odoo digest port)"
 
 # =============================================================================
-# ADR-0014 company fence — the DG-12 closing (council 2026-08-22, binding).
+# Tenancy: none, by design (ADR-0029). The module is tenant-agnostic and
+# reusable — it ships no scoping column and no fence declaration. A composing
+# backend-service that wants these tables org-scoped declares them in its
+# tenancy.yaml; the decorator installs org_unit_id, the RLS policy, the kind
+# guard, and per-unit uniques at composition time.
 #
-# Upstream ships ZERO ir.rules: every internal user reads every company's
-# digest configs and tips (the spec's faithfulness note 6 authorizes picking
-# either posture for a real-RLS port). This port picks PER-COMPANY DIGESTS:
-# the digest config row is company-private, so the cross-company
-# invisibility probe ("a company-A operator cannot enumerate company-B
-# digests") is answerable by a fence declaration, not by convention.
-#
-# Posture map (entity -> realized fence, under this one declaration):
-#   DigestDigest       -> strict (@required company_id — the DG-6 closing:
-#                         NOT NULL removes Odoo's env.company fallback; a
-#                         digest ALWAYS has an owning company here)
-#   DigestTip          -> shared (NO company column — tips are one global
-#                         carousel, every company reads the same rows)
-#   DigestSubscription -> none (no company column — the recipient graph;
-#                         reads resolve through the fenced parent digest,
-#                         the C2 single-tenancy posture below)
-#   DigestDigestKpi    -> none (no company column — KPI enablement rows;
-#                         same read-through-parent contract)
-#   DigestTipUser      -> none (no company column — per-user tip
-#                         consumption markers, keyed by user not company)
-#
-# The fence-none children carry no company column BY RULING (the spec's C2
-# single-tenancy posture): their company axis is INHERITED — every supported
-# read path joins the strict-fenced digest_digests parent, so the parent's
-# RLS answers the family-wide cross-company probe. Tips are deliberately
-# world-shared data (carousel content, no tenant axis).
-#
-# NOTE: ADR-0014's `none`-exemplar list still names digest (stale — the
-# ruling above supersedes it; recorded in docs/port-notes.md).
+# The former per-company posture (the ADR-0014 strict fence on
+# digest_digests, tips shared, the through-tables fence-none) was the
+# DG-12/DG-6 closing and is superseded here: digest_tips remains world-shared
+# content by nature, and the family's cross-org invisibility is the
+# composing service's org fence, not a module declaration.
 # =============================================================================
-company_fence: strict
 
 config:
   database: postgresql
@@ -71,9 +50,8 @@ config:
       - proto
 
 # Reuse sapiens for user identity (digest recipients, tip consumers) —
-# logical refs, no DB constraint, no Cargo edge. organization.Company (the
-# fence target) and identity.Group (the tip visibility gate) are likewise
-# comment-level logical refs only.
+# logical refs, no DB constraint, no Cargo edge. identity.Group (the tip
+# visibility gate) is likewise a comment-level logical ref only.
 external_imports:
   - module: sapiens
     types: [User]
@@ -120,7 +98,7 @@ imports:
 #
 # digest.digest         -> DigestDigest                digest.model.yaml
 #                           (the config row: cadence, due-date spine, 2-value
-#                           hand-set state machine, company fence column)
+#                           hand-set state machine)
 # digest.digest.user_ids -> DigestSubscription         digest.model.yaml
 #                           (Odoo's m2m realized as through-rows so the
 #                           unsubscribed state EXISTS as data — the RFC 8058

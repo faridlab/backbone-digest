@@ -16,7 +16,8 @@ use backbone_digest::application::service::user_created_handler::UserCreatedHand
 use backbone_messaging::IntegrationEventHandler;
 
 use super::common::{
-    seed_membership, seed_user, subscription_metadata, user_created_envelope, Svc, TestDb,
+    seed_membership, seed_org_unit, seed_user, subscription_metadata, user_created_envelope, Svc,
+    TestDb,
 };
 
 /// The full loop: internal subscribe, replay idempotency, the three
@@ -27,11 +28,11 @@ async fn created_users_subscribe_internal_only_and_idempotently() {
     let svc = Svc::new(db.pool.clone());
     svc.install_sql_port();
     let now = Utc::now();
-    let co = Uuid::new_v4();
+    let co = seed_org_unit(&db.pool, "GROWTH", "Growth Co").await;
 
     let default_digest = svc
         .write
-        .create_digest("Default Digest", co, backbone_digest::application::service::DigestPeriodicity::Daily, now.date_naive())
+        .create_digest("Default Digest", backbone_digest::application::service::DigestPeriodicity::Daily, now.date_naive())
         .await
         .expect("create default digest");
     let handler = UserCreatedHandler::new(svc.write.clone(), svc.slot.clone(), Some(default_digest));
@@ -151,11 +152,11 @@ async fn module_builder_arms_the_loop_through_with_default_digest() {
     assert!(module.kpi_registry().get(backbone_digest::application::service::kpi_registry::KPI_CONNECTED_USERS).is_some());
     assert!(module.kpi_registry().get(backbone_digest::application::service::kpi_registry::KPI_MESSAGES_SENT).is_some());
 
-    let co = Uuid::new_v4();
+    let co = seed_org_unit(&pool, "ARMED", "Armed Co").await;
     let now = Utc::now();
     let d = module
         .write_service()
-        .create_digest("Armed Digest", co, backbone_digest::application::service::DigestPeriodicity::Weekly, now.date_naive())
+        .create_digest("Armed Digest", backbone_digest::application::service::DigestPeriodicity::Weekly, now.date_naive())
         .await
         .expect("create");
 

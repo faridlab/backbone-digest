@@ -41,9 +41,6 @@ pub struct CreateDigestDigestDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "next_run_date")]
     pub next_run_date: Option<NaiveDate>,
     pub state: DigestState,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
 }
 
 // =============================================================================
@@ -66,9 +63,6 @@ pub struct UpdateDigestDigestDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "next_run_date")]
     pub next_run_date: Option<NaiveDate>,
     pub state: DigestState,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
 }
 
 // =============================================================================
@@ -94,15 +88,12 @@ pub struct PatchDigestDigestDto {
     pub next_run_date: Option<NaiveDate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<DigestState>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
 }
 
 impl PatchDigestDigestDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.name.is_some() || self.periodicity.is_some() || self.next_run_date.is_some() || self.state.is_some() || self.company_id.is_some()
+        self.name.is_some() || self.periodicity.is_some() || self.next_run_date.is_some() || self.state.is_some()
     }
 }
 
@@ -125,8 +116,6 @@ pub struct DigestDigestResponseDto {
     pub periodicity: DigestPeriodicity,
     pub next_run_date: Option<NaiveDate>,
     pub state: DigestState,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     pub metadata: AuditMetadata,
 }
 
@@ -202,7 +191,6 @@ impl From<DigestDigest> for DigestDigestResponseDto {
             periodicity: entity.periodicity,
             next_run_date: entity.next_run_date,
             state: entity.state,
-            company_id: entity.company_id,
             metadata: entity.metadata,
         }
     }
@@ -229,7 +217,6 @@ impl From<CreateDigestDigestDto> for DigestDigest {
             periodicity: dto.periodicity,
             next_run_date: dto.next_run_date,
             state: dto.state,
-            company_id: dto.company_id,
             metadata: AuditMetadata::default(),
         }
     }
@@ -243,7 +230,6 @@ impl From<&DigestDigest> for DigestDigestResponseDto {
             periodicity: entity.periodicity.clone(),
             next_run_date: entity.next_run_date.clone(),
             state: entity.state.clone(),
-            company_id: entity.company_id.clone(),
             metadata: entity.metadata.clone(),
         }
     }
@@ -261,7 +247,6 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestDigestDto> for DigestDigest {
         self.periodicity = dto.periodicity;
         self.next_run_date = dto.next_run_date;
         self.state = dto.state;
-        self.company_id = dto.company_id;
         Ok(self)
     }
 }

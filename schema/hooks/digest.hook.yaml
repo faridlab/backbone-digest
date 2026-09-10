@@ -110,17 +110,11 @@ rules:
     error_code: auto_subscribe_refused
     enforcement: service
 
-  # ---- the fence (DG-12, DG-6) ---------------------------------------------------
-
-  - id: R-DG12
-    name: per_company_digests_family_reads_through_parent
-    when: any read of digests, subscriptions, kpi enablement
-    assert: "digest_digests is RLS-fenced strict with NOT NULL company_id (the DG-6 closing — the env.company fallback does not port); the fence-none family members (subscriptions, kpi enablement, tip consumption) carry NO company column by ruling and are read ONLY through their parent digest, so every supported enumeration inherits the parent's company axis: a company-A operator cannot enumerate company-B digests or their subscriptions/enablement. digest_tips is deliberately SHARED (world carousel content, no tenant axis)"
-    error_code: cross_company_digest_read
-    enforcement: both
-    # db: the RLS policy + NOT NULL on digest_digests (the probe's substrate).
-    # service: the read-through-parent contract for the fence-none children
-    # (bare cross-parent enumeration is not a supported path).
+  # ---- tenancy -----------------------------------------------------------------
+  # No fence rule. The module is tenant-agnostic (ADR-0029): it ships no
+  # scoping column and no RLS fence; org scoping is installed by the
+  # composing service's tenancy decorator. The former R-DG12 (per-company
+  # digests read through a strict-fenced parent) died with that fence.
 
   # ---- the tips carousel (EBT instance, EP-4) -----------------------------------
 

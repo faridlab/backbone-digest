@@ -6,12 +6,13 @@
 //!
 //! A KPI is a **named, registered compute function** keyed `kpi_<name>`.
 //! Every registry entry carries its OWN fence declaration — a statement of
-//! WHICH company's (or shared) data the compute reads. At render time the
-//! engine decides whether a KPI renders for a recipient FROM THAT
-//! DECLARATION, **never from row count**. Under row-level security an
-//! out-of-fence read is ZERO ROWS, indistinguishable from a genuine zero —
-//! so any drop inferred from empty results would silently erase genuine
-//! zeros. The two cases are observably different here:
+//! WHOSE data the compute reads (the recipient's own company-scoped data, a
+//! named company's data, or shared data). At render time the engine decides
+//! whether a KPI renders for a recipient FROM THAT DECLARATION, **never
+//! from row count**. Under row-level security an out-of-fence read is ZERO
+//! ROWS, indistinguishable from a genuine zero — so any drop inferred from
+//! empty results would silently erase genuine zeros. The two cases are
+//! observably different here:
 //!
 //! - an in-fence KPI whose data is genuinely zero **renders `0`**;
 //! - an out-of-fence KPI is **absent from the rendered mail** — silently,
@@ -36,14 +37,17 @@
 //!     .build()?;
 //! ```
 //!
-//! `KpiFenceDeclaration::CompanyData` declares that the compute reads the
-//! digest's own company's data — it renders only for recipients whose own
-//! company fence covers that company. `SharedData` declares unfenced data
-//! (renders for every recipient). `PinnedCompanyData(c)` declares data
-//! pinned to one named company and renders only for that company's
-//! recipients. Registration is also possible after `build()` through
-//! [`DigestModule::register_kpi`] (the same registry, interior-mutable so
-//! late-arriving modules can extend it).
+//! `KpiFenceDeclaration::CompanyData` declares that the compute reads
+//! company-scoped data under the RECIPIENT's own company — it renders only
+//! for recipients whose active company the recipient port resolves, and
+//! fails closed (drops) for company-less recipients. `SharedData` declares
+//! unfenced data (renders for every recipient). `PinnedCompanyData(c)`
+//! declares data pinned to one named company and renders only for that
+//! company's recipients. The module itself ships no tenancy axis (ADR-0029):
+//! which digests a recipient may reach at all is the composing service's
+//! org fence, decided before any render runs. Registration is also possible
+//! after `build()` through [`DigestModule::register_kpi`] (the same
+//! registry, interior-mutable so late-arriving modules can extend it).
 //!
 //! Re-registering an existing name PANICS at load time (R-DG1): the name
 //! is the metric's identity, and two live compute functions claiming one
@@ -68,13 +72,16 @@ pub const KPI_CONNECTED_USERS: &str = "kpi_res_users_connected";
 pub const KPI_MESSAGES_SENT: &str = "kpi_mail_message_total";
 
 /// What one compute invocation sees. The `company_id` is the fence the
-/// value is computed under — the RECIPIENT's own company (never the
+/// value is computed under — the RECIPIENT's own active company (never the
 /// sending system's): KPI SQL must scope every company-bearing read with
-/// it explicitly.
+/// it explicitly. `None` when the recipient carries no active company —
+/// company-scoped computes never run for such recipients (the fence
+/// declaration drops them first), so only shared-data computes can observe
+/// `None`, and they ignore it.
 #[derive(Debug, Clone)]
 pub struct KpiQueryContext {
     pub recipient_user_id: Uuid,
-    pub company_id: Uuid,
+    pub company_id: Option<Uuid>,
     pub window_start: DateTime<Utc>,
     pub window_end: DateTime<Utc>,
 }
@@ -144,8 +151,9 @@ pub enum KpiFenceDeclaration {
     /// The compute reads data that is not company-fenced — renders for
     /// every recipient.
     SharedData,
-    /// The compute reads the DIGEST's own company's data — renders only
-    /// for recipients whose own company fence covers the digest's company.
+    /// The compute reads the RECIPIENT's own company-scoped data — renders
+    /// only for recipients whose active company the recipient port
+    /// resolves; fails closed (drops) for company-less recipients.
     CompanyData,
     /// The compute reads one named company's data (a KPI registered
     /// against a fixed company) — renders only for that company's
@@ -156,20 +164,17 @@ pub enum KpiFenceDeclaration {
 impl KpiFenceDeclaration {
     /// The declaration-driven drop decision. PURE — probe-asserted
     /// directly. `recipient_company` is the recipient's own fence; this
-    /// NEVER inspects a computed value or row count.
-    pub fn renders_for(
-        &self,
-        recipient_company: Option<Uuid>,
-        digest_company: Option<Uuid>,
-    ) -> bool {
+    /// NEVER inspects a computed value or row count. The module carries no
+    /// tenancy axis of its own (ADR-0029) — which digests a recipient may
+    /// reach is the composing service's org fence — so the recipient's
+    /// resolved company is the only fence leg here.
+    pub fn renders_for(&self, recipient_company: Option<Uuid>) -> bool {
         match self {
             KpiFenceDeclaration::SharedData => true,
-            KpiFenceDeclaration::CompanyData => match (recipient_company, digest_company) {
-                (Some(r), Some(d)) => r == d,
-                // No company on either side means the fence cannot be
-                // established — fail CLOSED (drop), never render.
-                _ => false,
-            },
+            // A company-scoped compute without a resolved recipient company
+            // has no fence to compute under — fail CLOSED (drop), never
+            // render.
+            KpiFenceDeclaration::CompanyData => recipient_company.is_some(),
             KpiFenceDeclaration::PinnedCompanyData(pinned) => {
                 recipient_company == Some(*pinned)
             }
@@ -325,28 +330,26 @@ mod tests {
 
     #[test]
     fn shared_renders_for_everyone() {
-        assert!(KpiFenceDeclaration::SharedData.renders_for(None, None));
-        assert!(KpiFenceDeclaration::SharedData.renders_for(None, Some(Uuid::new_v4())));
+        assert!(KpiFenceDeclaration::SharedData.renders_for(None));
+        assert!(KpiFenceDeclaration::SharedData.renders_for(Some(Uuid::new_v4())));
     }
 
     #[test]
-    fn company_data_renders_only_when_fences_match() {
+    fn company_data_renders_only_for_recipients_with_a_company() {
         let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
         let f = KpiFenceDeclaration::CompanyData;
-        assert!(f.renders_for(Some(a), Some(a)));
-        assert!(!f.renders_for(Some(a), Some(b)));
-        // Fail closed when either fence is unknown.
-        assert!(!f.renders_for(None, Some(a)));
-        assert!(!f.renders_for(Some(a), None));
+        assert!(f.renders_for(Some(a)));
+        // Fail closed when the recipient carries no active company: the
+        // compute would have no fence to run under.
+        assert!(!f.renders_for(None));
     }
 
     #[test]
     fn pinned_company_renders_only_for_that_company() {
         let pinned = Uuid::new_v4();
         let f = KpiFenceDeclaration::PinnedCompanyData(pinned);
-        assert!(f.renders_for(Some(pinned), Some(Uuid::new_v4())));
-        assert!(!f.renders_for(Some(Uuid::new_v4()), Some(pinned)));
-        assert!(!f.renders_for(None, None));
+        assert!(f.renders_for(Some(pinned)));
+        assert!(!f.renders_for(Some(Uuid::new_v4())));
+        assert!(!f.renders_for(None));
     }
 }

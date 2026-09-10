@@ -91,6 +91,11 @@ user_owned:
   # no oracle) + the human GET leg, throttled 120/min per client.
   - "src/presentation/http/public_routes.rs"
 
+  # Hand-authored migrations (the tenancy strip — the strip's ordering guard
+  # is hand-authored logic, not schema-derived emission).
+  - "migrations/20260910124609_strip_tenancy.up.sql"
+  - "migrations/20260910124609_strip_tenancy.down.sql"
+
   # Hand-authored module documentation.
   - "docs/**"
   - "README.md"

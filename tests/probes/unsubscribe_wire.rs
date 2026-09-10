@@ -6,7 +6,6 @@
 //! would silently no-op while still answering the bare 200.
 
 use chrono::{Duration, Utc};
-use uuid::Uuid;
 
 use backbone_digest::application::service::DigestPeriodicity;
 
@@ -65,11 +64,10 @@ async fn one_click(app: &axum::Router, token: &str) -> axum::http::StatusCode {
 async fn one_click_wire_shape_query_token_performs_and_refuses() {
     let Wire { db, svc, app } = Wire::new().await;
     let now = Utc::now();
-    let co = Uuid::new_v4();
 
     let digest = svc
         .write
-        .create_digest("Wire Digest", co, DigestPeriodicity::Daily, now.date_naive())
+        .create_digest("Wire Digest", DigestPeriodicity::Daily, now.date_naive())
         .await
         .expect("create digest");
     let user = seed_user(&db.pool, "wire@x.test", None).await;
@@ -138,11 +136,10 @@ async fn one_click_wire_shape_query_token_performs_and_refuses() {
 async fn one_click_form_body_carrier_still_applies() {
     let Wire { db, svc, app } = Wire::new().await;
     let now = Utc::now();
-    let co = Uuid::new_v4();
 
     let digest = svc
         .write
-        .create_digest("Form Digest", co, DigestPeriodicity::Weekly, now.date_naive())
+        .create_digest("Form Digest", DigestPeriodicity::Weekly, now.date_naive())
         .await
         .expect("create digest");
     let user = seed_user(&db.pool, "form@x.test", None).await;

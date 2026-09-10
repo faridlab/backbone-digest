@@ -1862,7 +1862,6 @@ components:
         - name
         - periodicity
         - state
-        - company_id
         - metadata
       properties:
         id:
@@ -1879,9 +1878,6 @@ components:
           format: date
         state:
           type: string
-        company_id:
-          type: string
-          format: uuid
         metadata:
           type: object
 
@@ -1904,7 +1900,6 @@ components:
         - name
         - periodicity
         - state
-        - company_id
         - metadata
       properties:
         name:
@@ -1918,9 +1913,6 @@ components:
           format: date
         state:
           type: string
-        company_id:
-          type: string
-          format: uuid
         metadata:
           type: object
 
@@ -1930,7 +1922,6 @@ components:
         - name
         - periodicity
         - state
-        - company_id
         - metadata
       properties:
         name:
@@ -1944,9 +1935,6 @@ components:
           format: date
         state:
           type: string
-        company_id:
-          type: string
-          format: uuid
         metadata:
           type: object
 
@@ -1964,9 +1952,6 @@ components:
           format: date
         state:
           type: string
-        company_id:
-          type: string
-          format: uuid
         metadata:
           type: object
 

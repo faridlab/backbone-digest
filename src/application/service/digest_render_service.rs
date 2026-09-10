@@ -233,11 +233,11 @@ impl DigestRenderService {
             // ---- THE CONDITION-16 DECISION --------------------------------
             // From the entry's OWN fence declaration, BEFORE any compute
             // runs. Never from row count: under RLS an out-of-fence read
-            // is zero rows — indistinguishable from a genuine zero.
-            if !def
-                .fence
-                .renders_for(ctx.company_id, Some(digest.company_id))
-            {
+            // is zero rows — indistinguishable from a genuine zero. The
+            // recipient's resolved company is the only fence leg — the
+            // module ships no tenancy axis (ADR-0029), so which digests a
+            // recipient reaches at all is the composer's org fence.
+            if !def.fence.renders_for(ctx.company_id) {
                 dropped_out_of_fence.push(key);
                 continue;
             }
@@ -247,10 +247,10 @@ impl DigestRenderService {
             let mut unavailable = false;
             for (cur_w, prev_w) in windows.iter() {
                 let cur = self
-                    .compute_one(&def.computer, recipient.user_id, ctx.company_id, digest.company_id, *cur_w)
+                    .compute_one(&def.computer, recipient.user_id, ctx.company_id, *cur_w)
                     .await;
                 let prev = self
-                    .compute_one(&def.computer, recipient.user_id, ctx.company_id, digest.company_id, *prev_w)
+                    .compute_one(&def.computer, recipient.user_id, ctx.company_id, *prev_w)
                     .await;
                 match (cur, prev) {
                     (Ok(cur), Ok(prev)) => {
@@ -325,15 +325,14 @@ impl DigestRenderService {
         computer: &Arc<dyn crate::application::service::kpi_registry::KpiComputer>,
         recipient_user_id: Uuid,
         recipient_company: Option<Uuid>,
-        digest_company: Uuid,
         window: TimeWindow,
     ) -> Result<KpiValue, Result<String, DigestError>> {
         let qctx = KpiQueryContext {
             recipient_user_id,
-            // The recipient's OWN fence; the digest's company stands in
-            // only when the recipient carries none (SharedData computes
-            // ignore it — CompanyData would already have dropped).
-            company_id: recipient_company.unwrap_or(digest_company),
+            // The recipient's OWN fence — `None` when they carry no active
+            // company (company-scoped computes were already dropped at the
+            // fence; shared-data computes ignore the value).
+            company_id: recipient_company,
             window_start: window.start,
             window_end: window.end,
         };
@@ -566,7 +565,6 @@ mod tests {
             periodicity: crate::application::service::digest_write_service::DigestPeriodicity::Daily,
             next_run_date: None,
             state: "activated".into(),
-            company_id: Uuid::new_v4(),
         };
         let body = build_body(&digest, &[], &None, "https://mail.example.test/digest/unsubscribe?t=abc", false);
         assert!(body.contains("Unsubscribe from this digest in one click"));

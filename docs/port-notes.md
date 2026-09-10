@@ -1,12 +1,23 @@
 # digest — port notes (Odoo `digest` → backbone-digest)
 
+> **Tenancy note (post-strip).** This module is now tenant-agnostic per
+> ADR-0029: it ships no scoping column, no fence declaration, and no RLS
+> policy. A composing backend-service that wants these tables org-scoped
+> declares them in its `tenancy.yaml`; its decorator installs the org
+> column, the policy, and per-unit uniques at composition time. Sections
+> below that describe the former per-company fence (the strict
+> `digest_digests.company_id`, the company isolation policy, the
+> digest-company leg of the KPI fence) record the superseded posture and
+> are kept as port history; the KPI fence itself remains, keyed on the
+> RECIPIENT's own resolved company only.
+
 Source of truth for the port: `docs/odoo/marketing/digest/` in this
 repository (README, business logic, schema models, hooks). This file
 records what was ported as-is, what was deliberately changed, and why.
 Everything here is plain-language and self-contained by design.
 
-The module in one line: one company-fenced config row per periodic KPI
-email; recipients, cadence, and enabled metrics hang off it; a daily
+The module in one line: one config row per periodic KPI email;
+recipients, cadence, and enabled metrics hang off it; a daily
 plain-pull cron renders and enqueues per recipient; an RFC 8058
 one-click unsubscribe closes the loop.
 
