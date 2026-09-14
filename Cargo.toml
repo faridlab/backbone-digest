@@ -1,6 +1,6 @@
 [package]
 name = "backbone-digest"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "KPI digests — the periodic KPI-email engine: a declarative name-keyed KPI registry other modules extend, per-recipient fenced rendering with declared (never row-count) KPI drops, the anti-spam slowdown ladder, a shared tips carousel, and a daily plain-pull cron whose due-date column is the queue (Odoo digest port)"
 
