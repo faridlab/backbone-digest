@@ -87,6 +87,12 @@ thiserror = "1.0"
 config = "0.14"
 serde_yaml = "0.9"
 
+# OpenAPI schema derive. The generator emits `use utoipa::ToSchema;` in every
+# entity and DTO behind the `openapi` feature, so the crate only builds with that
+# feature on when the derive's crate is present: a feature that cannot compile is
+# not a feature.
+utoipa = { version = "5", features = ["chrono", "uuid"] }
+
 [features]
 default = []
 events = []
