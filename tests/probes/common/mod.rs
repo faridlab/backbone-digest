@@ -153,16 +153,23 @@ impl Drop for TestDb {
 
 /// Apply this module's migrations plus the sibling sets the module's
 /// SQL adapters read (organization: the org-unit spine sapiens'
-/// membership rekey chain requires, including the seeded tenant root;
-/// sapiens: users/memberships/roles; mail: the messaging.mail_messages
-/// volume the Messages Sent KPI counts), each set in its own sorted
-/// batch — the order each module's own runner uses. The outbox schema
-/// mail's enqueue stages into is migrated by the outbox crate itself
-/// (the mailing-module precedent).
+/// membership rekey chain requires, including the seeded tenant root —
+/// itself requiring employee.employees, which its membership migration
+/// resolves against; employee: the workforce spine that organization
+/// migration reads, whose data-change-audit migration in turn resolves
+/// against the auditlog schema; auditlog: the audit capture schema that
+/// employee's triggers hang off; sapiens: users/memberships/roles;
+/// mail: the messaging.mail_messages volume the Messages Sent KPI
+/// counts), each set in its own sorted batch — the order each module's
+/// own runner uses, auditlog and employees before the spines that
+/// reference them. The outbox schema mail's enqueue stages into is
+/// migrated by the outbox crate itself (the mailing-module precedent).
 async fn apply_sibling_migrations(pool: &PgPool, marker: &str) -> Result<(), String> {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let dirs = [
         format!("{manifest}/migrations"),
+        format!("{manifest}/../backbone-auditlog/migrations"),
+        format!("{manifest}/../backbone-employee/migrations"),
         format!("{manifest}/../backbone-organization/migrations"),
         format!("{manifest}/../backbone-sapiens/migrations"),
         format!("{manifest}/../backbone-mail/migrations"),

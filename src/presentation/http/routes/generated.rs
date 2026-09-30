@@ -9,8 +9,8 @@ use axum::Router;
 use std::sync::Arc;
 
 use super::{
-    digest_digest_handler::create_digest_digest_routes,
-    digest_subscription_handler::create_digest_subscription_routes,
+    digest_digest_handler::create_digest_digest_read_routes,
+    digest_subscription_handler::create_digest_subscription_read_routes,
     digest_digest_kpi_handler::create_digest_digest_kpi_routes,
     digest_tip_handler::create_digest_tip_routes,
     digest_tip_user_handler::create_digest_tip_user_routes,
@@ -50,10 +50,10 @@ pub struct HttpServices {
 /// 12. GET /api/v1/{collection}/:id/deleted - Get deleted by ID
 pub fn configure_routes(services: HttpServices) -> Router {
     Router::new()
-        // DigestDigest routes (12 Backbone endpoints)
-        .merge(create_digest_digest_routes(services.digest_digest))
-        // DigestSubscription routes (12 Backbone endpoints)
-        .merge(create_digest_subscription_routes(services.digest_subscription))
+        // DigestDigest routes (READ-ONLY mount — hand_set lifecycle; the state field moves only through the module's validated verbs)
+        .merge(create_digest_digest_read_routes(services.digest_digest))
+        // DigestSubscription routes (READ-ONLY mount — hand_set lifecycle; the state field moves only through the module's validated verbs)
+        .merge(create_digest_subscription_read_routes(services.digest_subscription))
         // DigestDigestKpi routes (12 Backbone endpoints)
         .merge(create_digest_digest_kpi_routes(services.digest_digest_kpi))
         // DigestTip routes (12 Backbone endpoints)
@@ -67,11 +67,11 @@ pub mod individual {
     use super::*;
 
     pub fn digest_digest_routes(service: Arc<DigestDigestService>) -> Router {
-        create_digest_digest_routes(service)
+        create_digest_digest_read_routes(service)
     }
 
     pub fn digest_subscription_routes(service: Arc<DigestSubscriptionService>) -> Router {
-        create_digest_subscription_routes(service)
+        create_digest_subscription_read_routes(service)
     }
 
     pub fn digest_digest_kpi_routes(service: Arc<DigestDigestKpiService>) -> Router {

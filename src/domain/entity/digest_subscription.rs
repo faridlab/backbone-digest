@@ -231,6 +231,7 @@ impl backbone_orm::EntityRepoMeta for DigestSubscription {
         m.insert("digest_id".to_string(), "uuid".to_string());
         m.insert("user_id".to_string(), "uuid".to_string());
         m.insert("state".to_string(), "digest_subscription_state".to_string());
+        m.insert("unsubscribed_at".to_string(), "timestamptz".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {

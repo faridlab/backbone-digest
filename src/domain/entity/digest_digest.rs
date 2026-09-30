@@ -231,6 +231,7 @@ impl backbone_orm::EntityRepoMeta for DigestDigest {
         m.insert("id".to_string(), "uuid".to_string());
         m.insert("periodicity".to_string(), "digest_periodicity".to_string());
         m.insert("state".to_string(), "digest_state".to_string());
+        m.insert("next_run_date".to_string(), "date".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
