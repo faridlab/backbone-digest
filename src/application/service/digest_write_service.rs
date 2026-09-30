@@ -18,6 +18,7 @@
 //! - `set_state` is the 2-value machine's one-liner activate/deactivate
 //!   (the cron's due scan filters on `activated`).
 
+use backbone_orm::org_scope;
 use chrono::{Datelike, NaiveDate, Utc};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -122,6 +123,13 @@ pub struct DigestWriteService {
 }
 
 impl DigestWriteService {
+    /// Every write in this service rides [`org_scope::execute_scoped`], so
+    /// under a composing service's request scope the statement takes the
+    /// request-dedicated connection with the fence variables bound (a
+    /// bare pool execute never consults the scope lane, and the tables'
+    /// org isolation policy then hides every row — the verb answers
+    /// not-found for a digest that exists); with no scope bound it
+    /// executes plainly, exactly as before.
     pub fn new(pool: PgPool, registry: std::sync::Arc<KpiRegistry>) -> Self {
         Self { pool, registry }
     }
@@ -137,16 +145,18 @@ impl DigestWriteService {
         today: NaiveDate,
     ) -> Result<Uuid, DigestError> {
         let id = Uuid::new_v4();
-        sqlx::query(
-            r#"INSERT INTO digest.digest_digests
+        org_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"INSERT INTO digest.digest_digests
                    (id, name, periodicity, next_run_date, state)
                VALUES ($1, $2, $3::digest_periodicity, $4, 'activated')"#,
+            )
+            .bind(id)
+            .bind(name)
+            .bind(periodicity.as_str())
+            .bind(periodicity.advance(today)),
         )
-        .bind(id)
-        .bind(name)
-        .bind(periodicity.as_str())
-        .bind(periodicity.advance(today))
-        .execute(&self.pool)
         .await?;
         Ok(id)
     }
@@ -167,16 +177,18 @@ impl DigestWriteService {
                 "periodicity '{value}' refused — the whitelist is daily|weekly|monthly|quarterly (error code: periodicity_value_refused)"
             )));
         };
-        let n = sqlx::query(
-            r#"UPDATE digest.digest_digests
+        let n = org_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"UPDATE digest.digest_digests
                SET periodicity = $2::digest_periodicity,
                    next_run_date = $3
                WHERE id = $1"#,
+            )
+            .bind(digest_id)
+            .bind(p.as_str())
+            .bind(p.advance(today)),
         )
-        .bind(digest_id)
-        .bind(p.as_str())
-        .bind(p.advance(today))
-        .execute(&self.pool)
         .await?
         .rows_affected();
         if n == 0 {
@@ -194,28 +206,32 @@ impl DigestWriteService {
                 "KPI '{kpi_key}' is not in the composed registry (error code: kpi_not_registered)"
             )));
         }
-        sqlx::query(
-            r#"INSERT INTO digest.digest_digest_kpis (digest_id, kpi_key)
+        org_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"INSERT INTO digest.digest_digest_kpis (digest_id, kpi_key)
                VALUES ($1, $2)
                ON CONFLICT (digest_id, kpi_key)
                DO NOTHING"#,
+            )
+            .bind(digest_id)
+            .bind(kpi_key),
         )
-        .bind(digest_id)
-        .bind(kpi_key)
-        .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     /// Disable one registry key on one digest (row-exists = enabled).
     pub async fn disable_kpi(&self, digest_id: Uuid, kpi_key: &str) -> Result<(), DigestError> {
-        sqlx::query(
-            r#"DELETE FROM digest.digest_digest_kpis
+        org_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"DELETE FROM digest.digest_digest_kpis
                WHERE digest_id = $1 AND kpi_key = $2"#,
+            )
+            .bind(digest_id)
+            .bind(kpi_key),
         )
-        .bind(digest_id)
-        .bind(kpi_key)
-        .execute(&self.pool)
         .await?;
         Ok(())
     }
@@ -259,14 +275,16 @@ impl DigestWriteService {
     /// guards. `activated` puts the digest back in the due scan.
     pub async fn set_state(&self, digest_id: Uuid, activated: bool) -> Result<(), DigestError> {
         let value = if activated { "activated" } else { "deactivated" };
-        let n = sqlx::query(
-            r#"UPDATE digest.digest_digests
+        let n = org_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"UPDATE digest.digest_digests
                SET state = $2::digest_state
                WHERE id = $1"#,
+            )
+            .bind(digest_id)
+            .bind(value),
         )
-        .bind(digest_id)
-        .bind(value)
-        .execute(&self.pool)
         .await?
         .rows_affected();
         if n == 0 {
@@ -302,15 +320,17 @@ impl DigestWriteService {
         user_id: Uuid,
         patch: serde_json::Value,
     ) -> Result<(), DigestError> {
-        sqlx::query(
-            r#"UPDATE digest.digest_subscriptions
+        org_scope::execute_scoped(
+            &self.pool,
+            sqlx::query(
+                r#"UPDATE digest.digest_subscriptions
                SET metadata = metadata || $3::jsonb
                WHERE digest_id = $1 AND user_id = $2"#,
+            )
+            .bind(digest_id)
+            .bind(user_id)
+            .bind(patch),
         )
-        .bind(digest_id)
-        .bind(user_id)
-        .bind(patch)
-        .execute(&self.pool)
         .await?;
         Ok(())
     }
