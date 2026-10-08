@@ -210,7 +210,8 @@ impl DigestModule {
 /// Builder for DigestModule.
 pub struct DigestModuleBuilder {
     db_pool: Option<PgPool>,
-    // <<< CUSTOM - custom builder fields
+    // <<< CUSTOM BUILDER FIELDS
+    // custom builder fields
     token_secret: Option<Vec<u8>>,
     public_base_url: Option<String>,
     default_digest: Option<Uuid>,
@@ -225,7 +226,7 @@ impl DigestModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
-            // <<< CUSTOM
+            // <<< CUSTOM BUILDER DEFAULTS
             token_secret: None,
             public_base_url: None,
             default_digest: None,
