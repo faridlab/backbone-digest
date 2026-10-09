@@ -28,7 +28,7 @@ use crate::application::service::{DigestSubscriptionService, ServiceError};
 // DTO imports
 use crate::presentation::dto::{CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, PatchDigestSubscriptionDto, DigestSubscriptionResponseDto};
 
-use crate::domain::state_machine::{digest_subscription_stateState, digest_subscription_stateStateMachine, digest_subscription_stateTransition};
+use crate::domain::state_machine::{DigestSubscriptionStateState, DigestSubscriptionStateStateMachine, DigestSubscriptionStateTransition};
 
 /// Application error type
 #[derive(Debug, thiserror::Error)]
@@ -213,7 +213,7 @@ pub async fn unsubscribe_transition(
     // Check permission (if auth enabled)
     #[cfg(feature = "auth")]
     {
-        let allowed_roles = digest_subscription_stateTransition::Unsubscribe.allowed_roles();
+        let allowed_roles = DigestSubscriptionStateTransition::Unsubscribe.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:unsubscribe");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_subscription:update");
         if !has_specific_perm && !has_update_perm {
@@ -222,10 +222,10 @@ pub async fn unsubscribe_transition(
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: digest_subscription_stateState = entity.state.to_string().parse()
-        .unwrap_or(digest_subscription_stateState::default());
-    let sm = digest_subscription_stateStateMachine::from_state(current_state);
-    if !sm.can_transition(digest_subscription_stateTransition::Unsubscribe) {
+    let current_state: DigestSubscriptionStateState = entity.state.to_string().parse()
+        .unwrap_or(DigestSubscriptionStateState::default());
+    let sm = DigestSubscriptionStateStateMachine::from_state(current_state);
+    if !sm.can_transition(DigestSubscriptionStateTransition::Unsubscribe) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Transition not allowed from current state")));
     }
 
@@ -263,7 +263,7 @@ pub async fn resubscribe_transition(
     // Check permission (if auth enabled)
     #[cfg(feature = "auth")]
     {
-        let allowed_roles = digest_subscription_stateTransition::Resubscribe.allowed_roles();
+        let allowed_roles = DigestSubscriptionStateTransition::Resubscribe.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:resubscribe");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_subscription:update");
         if !has_specific_perm && !has_update_perm {
@@ -272,10 +272,10 @@ pub async fn resubscribe_transition(
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: digest_subscription_stateState = entity.state.to_string().parse()
-        .unwrap_or(digest_subscription_stateState::default());
-    let sm = digest_subscription_stateStateMachine::from_state(current_state);
-    if !sm.can_transition(digest_subscription_stateTransition::Resubscribe) {
+    let current_state: DigestSubscriptionStateState = entity.state.to_string().parse()
+        .unwrap_or(DigestSubscriptionStateState::default());
+    let sm = DigestSubscriptionStateStateMachine::from_state(current_state);
+    if !sm.can_transition(DigestSubscriptionStateTransition::Resubscribe) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Transition not allowed from current state")));
     }
 

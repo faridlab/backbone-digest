@@ -29,5 +29,5 @@ pub enum StateMachineError {
     FinalStateReached(String),
 }
 
-pub use digest_state_state_machine::{digest_stateState, digest_stateTransition, digest_stateStateMachine};
-pub use digest_subscription_state_state_machine::{digest_subscription_stateState, digest_subscription_stateTransition, digest_subscription_stateStateMachine};
+pub use digest_state_state_machine::{DigestStateState, DigestStateTransition, DigestStateStateMachine};
+pub use digest_subscription_state_state_machine::{DigestSubscriptionStateState, DigestSubscriptionStateTransition, DigestSubscriptionStateStateMachine};

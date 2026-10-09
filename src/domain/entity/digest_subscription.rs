@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::DigestSubscriptionState;
 use super::AuditMetadata;
 
-use crate::domain::state_machine::{digest_subscription_stateStateMachine, digest_subscription_stateState, StateMachineError};
+use crate::domain::state_machine::{DigestSubscriptionStateStateMachine, DigestSubscriptionStateState, StateMachineError};
 
 /// Strongly-typed ID for DigestSubscription
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -148,9 +148,9 @@ impl DigestSubscription {
     ///
     /// Returns `Err` if the transition is not permitted from the current state.
     /// Use this method instead of assigning `self.state` directly.
-    pub fn transition_to(&mut self, new_state: digest_subscription_stateState) -> Result<(), StateMachineError> {
-        let current = self.state.to_string().parse::<digest_subscription_stateState>()?;
-        let mut sm = digest_subscription_stateStateMachine::from_state(current);
+    pub fn transition_to(&mut self, new_state: DigestSubscriptionStateState) -> Result<(), StateMachineError> {
+        let current = self.state.to_string().parse::<DigestSubscriptionStateState>()?;
+        let mut sm = DigestSubscriptionStateStateMachine::from_state(current);
         sm.transition_to_state(new_state)?;
         self.state = new_state.to_string().parse::<DigestSubscriptionState>()
             .map_err(|e| StateMachineError::InvalidState(e.to_string()))?;

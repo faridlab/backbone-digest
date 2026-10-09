@@ -22,6 +22,6 @@ pub type DigestDigestTriggerHandlerObj =
 
 /// Create a default registry pre-populated with all handlers for DigestDigest.
 pub fn digest_digest_trigger_registry() -> DigestDigestTriggerRegistry {
-    TriggerRegistry::build(|r| {
+    TriggerRegistry::build(|_r| {
     })
 }

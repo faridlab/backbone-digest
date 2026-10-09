@@ -28,7 +28,7 @@ use crate::application::service::{DigestDigestService, ServiceError};
 // DTO imports
 use crate::presentation::dto::{CreateDigestDigestDto, UpdateDigestDigestDto, PatchDigestDigestDto, DigestDigestResponseDto};
 
-use crate::domain::state_machine::{digest_stateState, digest_stateStateMachine, digest_stateTransition};
+use crate::domain::state_machine::{DigestStateState, DigestStateStateMachine, DigestStateTransition};
 
 /// Application error type
 #[derive(Debug, thiserror::Error)]
@@ -213,7 +213,7 @@ pub async fn action_activate_transition(
     // Check permission (if auth enabled)
     #[cfg(feature = "auth")]
     {
-        let allowed_roles = digest_stateTransition::ActionActivate.allowed_roles();
+        let allowed_roles = DigestStateTransition::ActionActivate.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_digest:transition:action_activate");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_digest:update");
         if !has_specific_perm && !has_update_perm {
@@ -222,10 +222,10 @@ pub async fn action_activate_transition(
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: digest_stateState = entity.state.to_string().parse()
-        .unwrap_or(digest_stateState::default());
-    let sm = digest_stateStateMachine::from_state(current_state);
-    if !sm.can_transition(digest_stateTransition::ActionActivate) {
+    let current_state: DigestStateState = entity.state.to_string().parse()
+        .unwrap_or(DigestStateState::default());
+    let sm = DigestStateStateMachine::from_state(current_state);
+    if !sm.can_transition(DigestStateTransition::ActionActivate) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestDigestResponseDto>::error("Transition not allowed from current state")));
     }
 
@@ -263,7 +263,7 @@ pub async fn action_deactivate_transition(
     // Check permission (if auth enabled)
     #[cfg(feature = "auth")]
     {
-        let allowed_roles = digest_stateTransition::ActionDeactivate.allowed_roles();
+        let allowed_roles = DigestStateTransition::ActionDeactivate.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_digest:transition:action_deactivate");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_digest:update");
         if !has_specific_perm && !has_update_perm {
@@ -272,10 +272,10 @@ pub async fn action_deactivate_transition(
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: digest_stateState = entity.state.to_string().parse()
-        .unwrap_or(digest_stateState::default());
-    let sm = digest_stateStateMachine::from_state(current_state);
-    if !sm.can_transition(digest_stateTransition::ActionDeactivate) {
+    let current_state: DigestStateState = entity.state.to_string().parse()
+        .unwrap_or(DigestStateState::default());
+    let sm = DigestStateStateMachine::from_state(current_state);
+    if !sm.can_transition(DigestStateTransition::ActionDeactivate) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestDigestResponseDto>::error("Transition not allowed from current state")));
     }
 
