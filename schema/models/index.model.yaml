@@ -44,6 +44,9 @@ config:
   audit: true
   default_timestamps: true
   generators:
+    # Off-by-default targets this module's released API still carries; it keeps
+    # them until its next breaking release.
+    opt_in: [seeder, specification, trigger, versioning]
     disabled:
       - graphql
       - grpc
