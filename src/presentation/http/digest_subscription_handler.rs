@@ -215,8 +215,13 @@ pub async fn unsubscribe_transition(
     };
     {
         let allowed_roles = DigestSubscriptionStateTransition::Unsubscribe.allowed_roles();
-        let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:unsubscribe");
-        let has_update_perm = auth.permissions.iter().any(|p| p == "digest_subscription:update");
+        let granted = |required: &str| auth.permissions.iter().any(|p| {
+            let (have, want): (Vec<&str>, Vec<&str>) = (p.split(':').collect(), required.split(':').collect());
+            have.iter().enumerate().all(|(i, h)| *h == "*" || want.get(i) == Some(h))
+                && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
+        });
+        let has_specific_perm = granted("digest_subscription:transition:unsubscribe");
+        let has_update_perm = granted("digest_subscription:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
             if !has_update_perm {
@@ -273,8 +278,13 @@ pub async fn resubscribe_transition(
     };
     {
         let allowed_roles = DigestSubscriptionStateTransition::Resubscribe.allowed_roles();
-        let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:resubscribe");
-        let has_update_perm = auth.permissions.iter().any(|p| p == "digest_subscription:update");
+        let granted = |required: &str| auth.permissions.iter().any(|p| {
+            let (have, want): (Vec<&str>, Vec<&str>) = (p.split(':').collect(), required.split(':').collect());
+            have.iter().enumerate().all(|(i, h)| *h == "*" || want.get(i) == Some(h))
+                && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
+        });
+        let has_specific_perm = granted("digest_subscription:transition:resubscribe");
+        let has_update_perm = granted("digest_subscription:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
             if !has_update_perm {

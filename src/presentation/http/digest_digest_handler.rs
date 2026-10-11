@@ -215,8 +215,13 @@ pub async fn action_activate_transition(
     };
     {
         let allowed_roles = DigestStateTransition::ActionActivate.allowed_roles();
-        let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_digest:transition:action_activate");
-        let has_update_perm = auth.permissions.iter().any(|p| p == "digest_digest:update");
+        let granted = |required: &str| auth.permissions.iter().any(|p| {
+            let (have, want): (Vec<&str>, Vec<&str>) = (p.split(':').collect(), required.split(':').collect());
+            have.iter().enumerate().all(|(i, h)| *h == "*" || want.get(i) == Some(h))
+                && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
+        });
+        let has_specific_perm = granted("digest_digest:transition:action_activate");
+        let has_update_perm = granted("digest_digest:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
             if !has_update_perm {
@@ -273,8 +278,13 @@ pub async fn action_deactivate_transition(
     };
     {
         let allowed_roles = DigestStateTransition::ActionDeactivate.allowed_roles();
-        let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_digest:transition:action_deactivate");
-        let has_update_perm = auth.permissions.iter().any(|p| p == "digest_digest:update");
+        let granted = |required: &str| auth.permissions.iter().any(|p| {
+            let (have, want): (Vec<&str>, Vec<&str>) = (p.split(':').collect(), required.split(':').collect());
+            have.iter().enumerate().all(|(i, h)| *h == "*" || want.get(i) == Some(h))
+                && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
+        });
+        let has_specific_perm = granted("digest_digest:transition:action_deactivate");
+        let has_update_perm = granted("digest_digest:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
             if !has_update_perm {
