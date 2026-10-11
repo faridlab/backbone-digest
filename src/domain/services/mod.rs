@@ -14,5 +14,3 @@ pub use digest_digest_kpi_domain_policy::DigestDigestKpiDomainPolicy;
 pub use digest_tip_domain_policy::DigestTipDomainPolicy;
 pub use digest_tip_user_domain_policy::DigestTipUserDomainPolicy;
 
-// <<< CUSTOM
-// END CUSTOM

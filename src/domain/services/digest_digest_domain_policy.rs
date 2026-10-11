@@ -18,5 +18,3 @@ use crate::domain::entity::DigestDigest;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type DigestDigestDomainPolicy = PermitAllPolicy<DigestDigest>;
 
-// <<< CUSTOM
-// END CUSTOM

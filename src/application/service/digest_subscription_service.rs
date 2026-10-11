@@ -32,5 +32,3 @@ pub type DigestSubscriptionService = GenericCrudService<
     DigestSubscriptionRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

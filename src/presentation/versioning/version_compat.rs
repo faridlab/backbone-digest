@@ -83,7 +83,6 @@ impl<T> RenamedField<T> {
 // Custom Compatibility Logic
 // =============================================================================
 
-// <<< CUSTOM COMPAT
 // Add custom version compatibility transformations here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM COMPAT

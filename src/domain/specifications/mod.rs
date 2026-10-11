@@ -12,5 +12,3 @@ pub mod digest_digest_kpi_specification;
 pub mod digest_tip_specification;
 pub mod digest_tip_user_specification;
 
-// <<< CUSTOM
-// END CUSTOM

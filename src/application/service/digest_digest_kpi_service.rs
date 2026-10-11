@@ -32,5 +32,3 @@ pub type DigestDigestKpiService = GenericCrudService<
     DigestDigestKpiRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

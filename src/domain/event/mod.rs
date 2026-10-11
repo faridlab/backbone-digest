@@ -24,5 +24,3 @@ pub use digest_tip_event_handlers::DigestTipEventHandler;
 pub use digest_tip_user_events::{DigestTipUserEvent, DigestTipUserEventPublisher, NoopDigestTipUserEventPublisher};
 pub use digest_tip_user_event_handlers::DigestTipUserEventHandler;
 
-// <<< CUSTOM
-// END CUSTOM

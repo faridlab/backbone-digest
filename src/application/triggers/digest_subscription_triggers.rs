@@ -25,3 +25,4 @@ pub fn digest_subscription_trigger_registry() -> DigestSubscriptionTriggerRegist
     TriggerRegistry::build(|_r| {
     })
 }
+

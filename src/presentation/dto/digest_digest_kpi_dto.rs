@@ -239,7 +239,7 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestDigestKpiDto> for DigestDigestKpi
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to DigestDigestKpi here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

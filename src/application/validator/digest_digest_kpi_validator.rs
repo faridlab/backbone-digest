@@ -16,9 +16,5 @@ pub type DigestDigestKpiValidator = EntityValidator<DigestDigestKpi>;
 pub fn digest_digest_kpi_validator() -> DigestDigestKpiValidator {
     EntityValidator::new()
         .rule(RequiredString::new("kpi_key", |e: &DigestDigestKpi| &e.kpi_key))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

@@ -25,3 +25,4 @@ pub fn digest_digest_trigger_registry() -> DigestDigestTriggerRegistry {
     TriggerRegistry::build(|_r| {
     })
 }
+

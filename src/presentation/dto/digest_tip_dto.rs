@@ -266,7 +266,7 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestTipDto> for DigestTip {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to DigestTip here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

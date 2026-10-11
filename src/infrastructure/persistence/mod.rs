@@ -11,8 +11,6 @@ mod digest_tip_repository;
 mod digest_tip_user_repository;
 
 // Custom persistence modules
-// <<< CUSTOM
-// END CUSTOM
 
 // Re-exports
 pub use digest_digest_repository::DigestDigestRepository;
@@ -29,5 +27,3 @@ pub use backbone_orm::repository::{
 };
 
 // Re-export custom persistence types
-// <<< CUSTOM
-// END CUSTOM

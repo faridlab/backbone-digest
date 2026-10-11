@@ -18,9 +18,5 @@ pub fn digest_tip_validator() -> DigestTipValidator {
         .rule(RequiredString::new("name", |e: &DigestTip| &e.name))
         .rule(RequiredString::new("tip_description", |e: &DigestTip| &e.tip_description))
         .rule(OptionalNotBlank::new("group_key", |e: &DigestTip| e.group_key.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

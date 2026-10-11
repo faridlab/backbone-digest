@@ -302,3 +302,4 @@ pub fn create_digest_subscription_transition_routes(service: Arc<DigestSubscript
         .route("/digest_subscriptions/:id/transitions/resubscribe", post(resubscribe_transition))
         .with_state(service)
 }
+

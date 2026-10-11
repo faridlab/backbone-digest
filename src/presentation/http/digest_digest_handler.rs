@@ -302,3 +302,4 @@ pub fn create_digest_digest_transition_routes(service: Arc<DigestDigestService>)
         .route("/digest_digests/:id/transitions/action_deactivate", post(action_deactivate_transition))
         .with_state(service)
 }
+

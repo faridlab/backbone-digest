@@ -16,9 +16,5 @@ pub type DigestDigestValidator = EntityValidator<DigestDigest>;
 pub fn digest_digest_validator() -> DigestDigestValidator {
     EntityValidator::new()
         .rule(RequiredString::new("name", |e: &DigestDigest| &e.name))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

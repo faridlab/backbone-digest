@@ -17,5 +17,3 @@ pub use digest_digest_kpi_validator::{DigestDigestKpiValidator, digest_digest_kp
 pub use digest_tip_validator::{DigestTipValidator, digest_tip_validator};
 pub use digest_tip_user_validator::{DigestTipUserValidator, digest_tip_user_validator};
 
-// <<< CUSTOM
-// END CUSTOM

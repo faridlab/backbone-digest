@@ -259,7 +259,7 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestSubscriptionDto> for DigestSubscr
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to DigestSubscription here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+
