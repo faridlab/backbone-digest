@@ -16,7 +16,6 @@ use chrono::{DateTime, Utc};
 use backbone_core::http::{ApiResponse, BackboneCrudHandler};
 
 // Auth integration (optional)
-#[cfg(feature = "auth")]
 use backbone_auth::middleware::AuthContext;
 #[cfg(feature = "auth")]
 use backbone_auth::AuthMiddleware;
@@ -199,7 +198,7 @@ pub fn create_protected_digest_subscription_routes<A: AuthMiddleware + Send + Sy
 pub async fn unsubscribe_transition(
     axum::extract::State(service): axum::extract::State<Arc<DigestSubscriptionService>>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    #[cfg(feature = "auth")] axum::Extension(auth): axum::Extension<AuthContext>,
+    auth: Option<axum::Extension<AuthContext>>,
 ) -> impl axum::response::IntoResponse {
     use axum::{http::StatusCode, Json};
 
@@ -210,8 +209,10 @@ pub async fn unsubscribe_transition(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<DigestSubscriptionResponseDto>::error(e.to_string()))),
     };
 
-    // Check permission (if auth enabled)
-    #[cfg(feature = "auth")]
+    // Check permission
+    let Some(axum::Extension(auth)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("A transition needs an authenticated caller")));
+    };
     {
         let allowed_roles = DigestSubscriptionStateTransition::Unsubscribe.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:unsubscribe");
@@ -255,7 +256,7 @@ pub async fn unsubscribe_transition(
 pub async fn resubscribe_transition(
     axum::extract::State(service): axum::extract::State<Arc<DigestSubscriptionService>>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    #[cfg(feature = "auth")] axum::Extension(auth): axum::Extension<AuthContext>,
+    auth: Option<axum::Extension<AuthContext>>,
 ) -> impl axum::response::IntoResponse {
     use axum::{http::StatusCode, Json};
 
@@ -266,8 +267,10 @@ pub async fn resubscribe_transition(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<DigestSubscriptionResponseDto>::error(e.to_string()))),
     };
 
-    // Check permission (if auth enabled)
-    #[cfg(feature = "auth")]
+    // Check permission
+    let Some(axum::Extension(auth)) = auth else {
+        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("A transition needs an authenticated caller")));
+    };
     {
         let allowed_roles = DigestSubscriptionStateTransition::Resubscribe.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:resubscribe");
