@@ -19,6 +19,7 @@ model: DigestDigest
 
 states:
   field: state
+  verbs: hand
   values:
     activated:
       initial: true

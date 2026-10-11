@@ -216,14 +216,20 @@ pub async fn action_activate_transition(
         let allowed_roles = DigestStateTransition::ActionActivate.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_digest:transition:action_activate");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_digest:update");
-        if !has_specific_perm && !has_update_perm {
-            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("Insufficient permissions for action_activate transition")));
+        let _ = &allowed_roles;
+        if !has_specific_perm {
+            if !has_update_perm {
+                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("Insufficient permissions for action_activate transition")));
+            }
+            tracing::warn!(target: "backbone::write_guard", entity = "DigestDigest", verb = "action_activate", code = "transition_by_update_permission", "a transition granted only by digest_digest:update, running in shadow; it needs digest_digest:transition:action_activate");
         }
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: DigestStateState = entity.state.to_string().parse()
-        .unwrap_or(DigestStateState::default());
+    let current_state: DigestStateState = match entity.state.to_string().parse() {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::CONFLICT, Json(ApiResponse::<DigestDigestResponseDto>::error("The stored state is not a state of this machine"))),
+    };
     let sm = DigestStateStateMachine::from_state(current_state);
     if !sm.can_transition(DigestStateTransition::ActionActivate) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestDigestResponseDto>::error("Transition not allowed from current state")));
@@ -231,9 +237,9 @@ pub async fn action_activate_transition(
 
     // Apply transition via partial update
     let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
-    fields.insert("state".to_string(), serde_json::Value::String("Activated".to_string()));
+    fields.insert("state".to_string(), serde_json::Value::String("activated".to_string()));
 
-    match service.partial_update(&id, fields).await {
+    match backbone_core::write_guard::as_transition("action_activate", service.partial_update(&id, fields)).await {
         Ok(Some(updated)) => {
             let response: DigestDigestResponseDto = updated.into();
             (StatusCode::OK, Json(ApiResponse::ok(response)))
@@ -266,14 +272,20 @@ pub async fn action_deactivate_transition(
         let allowed_roles = DigestStateTransition::ActionDeactivate.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_digest:transition:action_deactivate");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_digest:update");
-        if !has_specific_perm && !has_update_perm {
-            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("Insufficient permissions for action_deactivate transition")));
+        let _ = &allowed_roles;
+        if !has_specific_perm {
+            if !has_update_perm {
+                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("Insufficient permissions for action_deactivate transition")));
+            }
+            tracing::warn!(target: "backbone::write_guard", entity = "DigestDigest", verb = "action_deactivate", code = "transition_by_update_permission", "a transition granted only by digest_digest:update, running in shadow; it needs digest_digest:transition:action_deactivate");
         }
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: DigestStateState = entity.state.to_string().parse()
-        .unwrap_or(DigestStateState::default());
+    let current_state: DigestStateState = match entity.state.to_string().parse() {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::CONFLICT, Json(ApiResponse::<DigestDigestResponseDto>::error("The stored state is not a state of this machine"))),
+    };
     let sm = DigestStateStateMachine::from_state(current_state);
     if !sm.can_transition(DigestStateTransition::ActionDeactivate) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestDigestResponseDto>::error("Transition not allowed from current state")));
@@ -281,9 +293,9 @@ pub async fn action_deactivate_transition(
 
     // Apply transition via partial update
     let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
-    fields.insert("state".to_string(), serde_json::Value::String("Deactivated".to_string()));
+    fields.insert("state".to_string(), serde_json::Value::String("deactivated".to_string()));
 
-    match service.partial_update(&id, fields).await {
+    match backbone_core::write_guard::as_transition("action_deactivate", service.partial_update(&id, fields)).await {
         Ok(Some(updated)) => {
             let response: DigestDigestResponseDto = updated.into();
             (StatusCode::OK, Json(ApiResponse::ok(response)))

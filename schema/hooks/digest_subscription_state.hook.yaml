@@ -20,6 +20,7 @@ model: DigestSubscription
 
 states:
   field: state
+  verbs: hand
   values:
     subscribed:
       initial: true

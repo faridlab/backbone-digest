@@ -216,14 +216,20 @@ pub async fn unsubscribe_transition(
         let allowed_roles = DigestSubscriptionStateTransition::Unsubscribe.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:unsubscribe");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_subscription:update");
-        if !has_specific_perm && !has_update_perm {
-            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Insufficient permissions for unsubscribe transition")));
+        let _ = &allowed_roles;
+        if !has_specific_perm {
+            if !has_update_perm {
+                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Insufficient permissions for unsubscribe transition")));
+            }
+            tracing::warn!(target: "backbone::write_guard", entity = "DigestSubscription", verb = "unsubscribe", code = "transition_by_update_permission", "a transition granted only by digest_subscription:update, running in shadow; it needs digest_subscription:transition:unsubscribe");
         }
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: DigestSubscriptionStateState = entity.state.to_string().parse()
-        .unwrap_or(DigestSubscriptionStateState::default());
+    let current_state: DigestSubscriptionStateState = match entity.state.to_string().parse() {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::CONFLICT, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("The stored state is not a state of this machine"))),
+    };
     let sm = DigestSubscriptionStateStateMachine::from_state(current_state);
     if !sm.can_transition(DigestSubscriptionStateTransition::Unsubscribe) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Transition not allowed from current state")));
@@ -231,9 +237,9 @@ pub async fn unsubscribe_transition(
 
     // Apply transition via partial update
     let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
-    fields.insert("state".to_string(), serde_json::Value::String("Unsubscribed".to_string()));
+    fields.insert("state".to_string(), serde_json::Value::String("unsubscribed".to_string()));
 
-    match service.partial_update(&id, fields).await {
+    match backbone_core::write_guard::as_transition("unsubscribe", service.partial_update(&id, fields)).await {
         Ok(Some(updated)) => {
             let response: DigestSubscriptionResponseDto = updated.into();
             (StatusCode::OK, Json(ApiResponse::ok(response)))
@@ -266,14 +272,20 @@ pub async fn resubscribe_transition(
         let allowed_roles = DigestSubscriptionStateTransition::Resubscribe.allowed_roles();
         let has_specific_perm = auth.permissions.iter().any(|p| p == "digest_subscription:transition:resubscribe");
         let has_update_perm = auth.permissions.iter().any(|p| p == "digest_subscription:update");
-        if !has_specific_perm && !has_update_perm {
-            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Insufficient permissions for resubscribe transition")));
+        let _ = &allowed_roles;
+        if !has_specific_perm {
+            if !has_update_perm {
+                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Insufficient permissions for resubscribe transition")));
+            }
+            tracing::warn!(target: "backbone::write_guard", entity = "DigestSubscription", verb = "resubscribe", code = "transition_by_update_permission", "a transition granted only by digest_subscription:update, running in shadow; it needs digest_subscription:transition:resubscribe");
         }
     }
 
     // Create state machine from entity's actual status and validate transition
-    let current_state: DigestSubscriptionStateState = entity.state.to_string().parse()
-        .unwrap_or(DigestSubscriptionStateState::default());
+    let current_state: DigestSubscriptionStateState = match entity.state.to_string().parse() {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::CONFLICT, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("The stored state is not a state of this machine"))),
+    };
     let sm = DigestSubscriptionStateStateMachine::from_state(current_state);
     if !sm.can_transition(DigestSubscriptionStateTransition::Resubscribe) {
         return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Transition not allowed from current state")));
@@ -281,9 +293,9 @@ pub async fn resubscribe_transition(
 
     // Apply transition via partial update
     let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
-    fields.insert("state".to_string(), serde_json::Value::String("Subscribed".to_string()));
+    fields.insert("state".to_string(), serde_json::Value::String("subscribed".to_string()));
 
-    match service.partial_update(&id, fields).await {
+    match backbone_core::write_guard::as_transition("resubscribe", service.partial_update(&id, fields)).await {
         Ok(Some(updated)) => {
             let response: DigestSubscriptionResponseDto = updated.into();
             (StatusCode::OK, Json(ApiResponse::ok(response)))

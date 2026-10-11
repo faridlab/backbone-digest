@@ -317,10 +317,10 @@ impl DigestModuleBuilder {
         // Generated entity services (the survey shape: repository per
         // entity, service over the repository).
         let digest_digest_repository = Arc::new(DigestDigestRepository::new(db_pool.clone()));
-        let digest_digest_service = Arc::new(DigestDigestService::with_repository(digest_digest_repository.clone()));
+        let digest_digest_service = Arc::new(DigestDigestService::with_repository(digest_digest_repository.clone()).with_guard(Arc::new(crate::application::service::digest_digest_service::DigestDigestRowRules)));
 
         let digest_subscription_repository = Arc::new(DigestSubscriptionRepository::new(db_pool.clone()));
-        let digest_subscription_service = Arc::new(DigestSubscriptionService::with_repository(digest_subscription_repository.clone()));
+        let digest_subscription_service = Arc::new(DigestSubscriptionService::with_repository(digest_subscription_repository.clone()).with_guard(Arc::new(crate::application::service::digest_subscription_service::DigestSubscriptionRowRules)));
 
         let digest_digest_kpi_repository = Arc::new(DigestDigestKpiRepository::new(db_pool.clone()));
         let digest_digest_kpi_service = Arc::new(DigestDigestKpiService::with_repository(digest_digest_kpi_repository.clone()));
