@@ -1,17 +1,11 @@
 # The rule ratchet (schema doctor): these counts may only go down. Regenerate with
 # `metaphor schema rules . --update-baseline` after enforcing a rule.
-unenforced: 10
-warnings: 11
+unenforced: 4
+warnings: 0
 machines_without_verbs: 0
 untested_rule_ids: 2
 unenforced_rules:
 - 'digest.hook.yaml: auto_subscribe_growth_loop'
-- 'digest.hook.yaml: kpi_registry_declarative'
-- 'digest.hook.yaml: next_run_date_spine'
-- 'digest.hook.yaml: out_of_fence_kpi_drop_declared'
 - 'digest.hook.yaml: pull_cron_due_date_queue'
-- 'digest.hook.yaml: rfc8058_headers_rides_mail'
-- 'digest.hook.yaml: set_periodicity_is_post'
 - 'digest.hook.yaml: slowdown_ladder_cron_only'
-- 'digest.hook.yaml: tip_stored_unsanitized_consumed_after_enqueue'
 - 'digest.hook.yaml: unsubscribe_is_hmac_capability'

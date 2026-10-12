@@ -34,22 +34,26 @@ rules:
 
   - id: R-DG1
     name: kpi_registry_declarative
+    entity: DigestDigestKpi
     when: register kpi, enable kpi on digest, render digest
     assert: "the metric set is the DECLARATIVE registry: compute functions keyed kpi_<name>, composed into the module through the builder (the ProviderRegistry precedent) — NEVER a runtime field-prefix scan; available_fields (the CSV compute) does not port. Enabling a key on a digest validates against the composed registry: an unknown key is a typed refusal at the service verb, a duplicate registration is a load-time panic. The registry is the API surface other modules extend"
     error_code: kpi_not_registered
+    enforced_by: "src/application/service/kpi_registry.rs::register, src/application/service/digest_write_service.rs::enable_kpi, src/application/service/digest_render_service.rs::render, migrations/20260426220003_create_digest_digest_kpi_table.up.sql::idx_digest_digest_kpis_digest_id_kpi_key"
     enforcement: service
-    justification: "The registry is composed in code at load time, so there is no table for a foreign key to point at. Validating an enabled key against it is what turns an unknown metric into a typed refusal instead of a digest that renders a blank column forever."
+    justification: "An unknown key is refused at enable and skipped at render, but answers digest_invalid, never kpi_not_registered; a duplicate registration panics at build."
     # service-only justification: the registry is code composed at build
     # time; digest_digest_kpis rows carry opaque keys the database cannot
     # vocabulary-check (there is no registry table — by design).
 
   - id: R-DG5
     name: out_of_fence_kpi_drop_declared
+    entity: DigestDigestKpi
     when: render digest for recipient
     assert: "the out-of-fence KPI DROP is decided from the registry entry's FENCE DECLARATION, never from row count — under RLS an out-of-fence read is zero rows, indistinguishable from a genuine zero, so zero-ness can never be the discriminator. A KPI whose declared fence is outside the recipient's render fence simply does not render: silent by design, documented at the API-contract level (the registry trait's docs). Render windows are computed in UTC (no tz home exists on the org stack — the declination is recorded in docs/port-notes.md)"
     error_code: kpi_fence_indeterminate
+    enforced_by: "src/application/service/kpi_registry.rs::renders_for, src/application/service/digest_render_service.rs::render"
     enforcement: service
-    justification: "The decision is taken from a declaration, deliberately, because the database cannot help here: under the row fence an out-of-fence read returns zero rows, which is indistinguishable from a genuine zero. Anything that inferred the drop from the data would silently report emptiness as a fact."
+    justification: "The drop decision holds, but the recipient's fence is their first-joined membership, not the digest's unit, and the shared mail-message KPI counts every tenant's messages."
     # service-only justification: the discriminator is a code-side
     # declaration comparison (registry fence vs render fence) before any
     # query runs; there is no SQL shape that can express "compare against
@@ -59,65 +63,75 @@ rules:
 
   - id: R-DG3
     name: slowdown_ladder_cron_only
+    entity: DigestDigest
     when: cron send (never manual send)
     assert: "on the CRON path only: if NO active recipient of the digest has logged in within the cadence window (daily 2d / weekly 7d / monthly 1m / quarterly 3m), the digest degrades one rung daily -> weekly -> monthly -> quarterly (quarterly stays; there is no reverse rung — nothing ever speeds a digest back up). The engagement signal is sapiens users.last_login read through the fail-closed recipient port (NOT a login-log table — the cycle doc's identity.UserLog mapping re-pointed). A manual Send Now never degrades anything. next_run_date advances on every send regardless"
     error_code: slowdown_signal_unavailable
     enforcement: service
-    justification: "The ladder reads a signal from another module (last login, through a fail-closed port) and applies it only on the cron path, never on a manual send. Neither the signal nor the distinction between the two paths exists in this module's rows."
+    justification: "PARTLY: the degrade update commits even when a mail failure leaves the digest unadvanced, so it slows one more rung each retry day; a digest with no recipients always degrades; 'active' reads subscription state only."
 
   # ---- the cron: a plain pull (DG-4, DG-13) -----------------------------------
 
   - id: R-DG4
     name: pull_cron_due_date_queue
+    entity: DigestDigest
     when: daily send sweep
     assert: "the due-date column IS the queue: the sweep searches next_run_date <= today AND state = activated, claiming due digests FOR UPDATE SKIP LOCKED (pickup_lock: true — two sweeps must not double-send). NO self-arming trigger exists anywhere (the EVM2 counter-example). A mail-delivery failure leaves next_run_date UNADVANCED (the digest retries whole next day). DECIDED DELTA vs upstream: the loop does NOT die mid-run on a per-digest failure — one digest's non-mail error is logged, audited, and isolated (the sweep continues to later digests); per-digest batches commit independently (commit_per_batch)"
     error_code: digest_send_conflict
     enforcement: service
-    justification: "The rule is about HOW the queue is drained: one claim with SKIP LOCKED, per-digest batches committing independently, and an unadvanced due date on failure. A constraint can describe a row; it cannot say that no self-arming trigger exists, which is half of what this rule guarantees."
+    justification: "PARTLY: the claim is FOR UPDATE SKIP LOCKED, but a failed send commits with next_run_date unchanged and releases the row, so a second replica re-mails every recipient the same day; mails are enqueued outside the claim transaction; under the composing service's FORCE row-level security the unscoped sweep sees no rows unless its role bypasses RLS."
 
   - id: R-DG13
     name: next_run_date_spine
+    entity: DigestDigest
     when: create digest, change periodicity, complete send loop
     assert: "next_run_date is nullable-with-meaning (NULL = never mailed); it is filled at create and reset on the periodicity change from the cadence delta (today + 1d/1w/1m/3mo, UTC), and advanced ONLY at the end of a successful send loop — never before, never by a partial failure. The column plus state is the scheduler's entire state: nothing else arms or defers a digest"
     error_code: next_run_date_violation
+    enforced_by: "src/application/service/digest_write_service.rs::create_digest, src/application/service/digest_write_service.rs::set_periodicity, src/application/service/digest_cron_service.rs::process_digest"
     enforcement: service
-    justification: "A column DEFAULT can fill the date at create, and nothing more: the rule is that the date advances only at the end of a successful send and never on a partial failure. That is a statement about when the write happens, which only the sending loop knows."
+    justification: "The verbs set and advance it; no column default or trigger does, so a digest inserted another way keeps a null next_run_date and the sweep never sees it."
 
   # ---- the mail: RFC 8058 + enqueue-as-done (DG-7, DG-8, DG-9) -----------------
 
   - id: R-DG7
     name: unsubscribe_is_hmac_capability
+    entity: DigestSubscription
     when: one-click unsubscribe POST, self-service unsubscribe
     assert: "the one-click unsubscribe is a Tier A HMAC action link (ADR-0018/ADR-0019): POST-form endpoint on the host's bare public-route class, token = HMAC over (digest_id, user_id, expiry) compared consteq (timing-safe), WITH MANDATORY EXPIRY — the recorded delta vs Odoo's never-expiring token (links regenerate per mail, so expiry costs nothing and bounds replay). The endpoint returns a bare 200 with no body (RFC 8058) and is IDEMPOTENT (a second POST on an unsubscribed row is a no-op success). Verify is throttled. DKIM/domain posture is a named OPS DEPENDENCY of this leg — one-click headers only function on DKIM-signed mail; it is not enforceable here and is recorded as an ops requirement"
     error_code: unsubscribe_token_invalid
     enforcement: service
-    justification: "A capability link is verified by recomputing an HMAC over the request in constant time and checking an expiry. There is no stored token to constrain, and that is the point of the design."
+    justification: "PARTLY: the HMAC and expiry hold, but the failure lock is keyed on the token's own digest and user ids and never expires, so five forged requests block a person's real unsubscribe; the GET leg unsubscribes (a prefetcher unsubscribes the recipient) and shows Unsubscribed even for a refused token; an empty secret makes tokens forgeable; the public route shares one global rate-limit bucket."
 
   - id: R-DG8
     name: rfc8058_headers_rides_mail
+    entity: DigestSubscription
     when: enqueue digest mail
     assert: "digest's notion of done is ENQUEUE (state outgoing into the mail queue — the 'queued' != sent family, one step removed): the per-recipient mail row carries List-Unsubscribe + List-Unsubscribe-Post: List-Unsubscribe=One-Click (+ X-Auto-Response-Suppress: OOF) through backbone-mail's per-mail custom headers parameter end to end. The unsubscribe URL in the header uses the CORRECT RFC 8058 spelling — Odoo's shipped `unsubscribe_oneclik` typo does NOT survive (recorded deviation: links are regenerated per mail, so no mailed link can break)"
     error_code: digest_mail_enqueue_failed
+    enforced_by: "src/application/service/digest_render_service.rs::render, src/application/service/digest_render_service.rs::deliver, src/application/service/digest_mail_seam.rs::send_digest_mail"
     enforcement: service
-    justification: "The invariant lives on the outgoing mail rows another module writes, carried through its per-mail headers. Nothing in this module's schema can hold it."
+    justification: "The headers ride every digest mail and reach the wire from backbone-email 3.7.1; the message and its queue row are two separate writes, so a failed enqueue leaves an orphan message."
 
   - id: R-DG9
     name: set_periodicity_is_post
+    entity: DigestDigest
     when: change digest cadence
     assert: "upstream's set_periodicity is a MUTATING GET — banned here by ADR-0019 rule 1. The cadence-change verb is a POST with a value whitelist (daily/weekly/monthly/quarterly else typed refusal); the emailed preference link posts to it. The whitelist check is the only upstream guard that ports"
     error_code: periodicity_value_refused
+    enforced_by: "src/application/service/digest_write_service.rs::parse, src/application/service/digest_write_service.rs::set_periodicity"
     enforcement: service
-    justification: "A value whitelist could be an enum, but the rule is about the VERB: the cadence change must be a POST rather than the mutating GET it replaces. Which HTTP method reaches a row is invisible to the database."
+    justification: "The verb is a POST and refuses an unknown value (answering invalid_input); the emailed preference link the rule mentions is not rendered."
 
   # ---- the growth loop (DG-10) -------------------------------------------------
 
   - id: R-DG10
     name: auto_subscribe_growth_loop
+    entity: DigestSubscription
     when: sapiens.user.created integration event
     assert: "every newly-created INTERNAL user is subscribed to the configured default digest when both config keys are set (digest.default_digest_emails + digest.default_digest_id) — the trigger is the sapiens.user.created integration event on the host bus (there is NO sapiens Cargo edge and NO create-path interception here; the host relay delivers the fact, digest exposes the subscribe verb). The internal-user predicate is host-injected through the fail-closed recipient port: unwired port or non-internal user = LOUD refusal, never a silent skip. The first digest a fresh recipient receives carries the unsubscribe leg VISIBLY"
     error_code: auto_subscribe_refused
     enforcement: service
-    justification: "The trigger is an integration event from another module delivered over the host bus, and the internal-user predicate comes from a host-injected port that refuses loudly when unwired. Neither the event nor the predicate exists in this schema."
+    justification: "PARTLY: the growth loop subscribes new internal users, but subscribe_user upserts state back to subscribed, so a redelivered user.created re-subscribes someone who unsubscribed; one deployment-wide default digest serves every tenant, and any active membership counts as internal."
 
   # ---- tenancy -----------------------------------------------------------------
   # No fence rule. The module is tenant-agnostic (ADR-0029): it ships no
@@ -129,13 +143,15 @@ rules:
 
   - id: R-DGT1
     name: tip_stored_unsanitized_consumed_after_enqueue
+    entity: DigestTipUser
     when: render digest for recipient
     assert: "tip_description is stored AS AUTHORED and html-sanitized AT RENDER TIME (the sanitizer choice is recorded in docs/port-notes.md — no sanitizer exists in the mail stack yet); the carousel pick is the lowest-sequence unconsumed group-gated tip; the consumption marker is appended only after the per-recipient mail row is successfully ENQUEUED (this module's done) — Odoo burns the tip BEFORE the enqueue, and that weaker order does not port (recorded deviation)"
     error_code: tip_render_violation
+    enforced_by: "src/application/service/digest_render_service.rs::pick_tip, src/application/service/digest_render_service.rs::deliver, migrations/20260426220005_create_digest_tip_user_table.up.sql::idx_digest_tip_users_tip_id_user_id"
     enforcement: service
-    justification: "The tip is stored exactly as authored and sanitized at render, and its consumption marker is appended only after the recipient's mail row is enqueued. Both halves are about ordering across a boundary this module's tables do not see."
+    justification: "The tip is stored exactly as authored and sanitized at render, and its consumption marker is appended only after the recipient's mail row is enqueued; if the marker insert fails after the enqueue, the digest stays unadvanced and every recipient is mailed again the next day."
 
-triggers: []
+# triggers: [] — not read by the generator in a list-format hook file; kept as the note below.
 # (none at the ORM layer — Odoo's create/write side-effect ladder does not
 #  port as triggers: next_run_date fill/reset is the create/update verb's
 #  job (R-DG13); the auto-subscribe growth loop arrives as a HOST-BUS
