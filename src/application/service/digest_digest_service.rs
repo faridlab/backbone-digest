@@ -68,7 +68,7 @@ impl backbone_core::write_guard::WriteGuard<DigestDigest> for DigestDigestRowRul
         }
         // `name_max_length` (@max(255) on DigestDigest.name)
         if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(255.0_f64))) {
-            shadow.push(Violation::new("name", "max_length", "name must be at most 255 characters").with_param("max", 255_i64));
+            refuse.push(Violation::new("name", "max_length", "name must be at most 255 characters").with_param("max", 255_i64));
         }
         GuardOutcome { refuse, shadow }
     }

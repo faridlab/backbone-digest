@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<DigestDigestKpi> for DigestDigestKpi
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `kpi_key_required` (@required on DigestDigestKpi.kpi_key)
         if (create || (update && r::changed(old.as_ref(), row, &["kpi_key"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "kpi_key")), r::not(r::is_empty(r::trim(r::field(row, "kpi_key")))))) {
@@ -64,7 +64,7 @@ impl backbone_core::write_guard::WriteGuard<DigestDigestKpi> for DigestDigestKpi
         }
         // `kpi_key_max_length` (@max(120) on DigestDigestKpi.kpi_key)
         if (create || (update && r::changed(old.as_ref(), row, &["kpi_key"]))) && !r::holds(&r::le(r::length(r::field(row, "kpi_key")), r::Val::Num(120.0_f64))) {
-            shadow.push(Violation::new("kpi_key", "max_length", "kpi_key must be at most 120 characters").with_param("max", 120_i64));
+            refuse.push(Violation::new("kpi_key", "max_length", "kpi_key must be at most 120 characters").with_param("max", 120_i64));
         }
         GuardOutcome { refuse, shadow }
     }
