@@ -32,9 +32,10 @@ pub type DigestDigestService = GenericCrudService<
     DigestDigestRepository,
 >;
 
-/// The row rules the schema declares for DigestDigest, checked against the row a create or
-/// update would store. The generated build attaches it to [`DigestDigestService`]. Every rule
-/// runs in shadow: a break is logged under `backbone::write_guard` and the write goes ahead.
+/// The rules the schema declares for DigestDigest, checked against the row a create or update
+/// would store. The generated build attaches it to [`DigestDigestService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
 pub struct DigestDigestRowRules;
 
 #[async_trait::async_trait]
@@ -56,11 +57,20 @@ impl backbone_core::write_guard::WriteGuard<DigestDigest> for DigestDigestRowRul
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
         let mut shadow = Vec::new();
+        let mut refuse = Vec::new();
         // `state` belongs to a state machine: only its verbs move it
         if update && ctx.transition.is_none() && r::changed(old.as_ref(), row, &["state"]) {
             shadow.push(Violation::new("state", "state_field_verbs_only", "the state field moves only through its verbs"));
         }
-        GuardOutcome { refuse: Vec::new(), shadow }
+        // `name_required` (@required on DigestDigest.name)
+        if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "name")), r::not(r::is_empty(r::trim(r::field(row, "name")))))) {
+            refuse.push(Violation::new("name", "required", "name is required"));
+        }
+        // `name_max_length` (@max(255) on DigestDigest.name)
+        if (create || (update && r::changed(old.as_ref(), row, &["name"]))) && !r::holds(&r::le(r::length(r::field(row, "name")), r::Val::Num(255.0_f64))) {
+            shadow.push(Violation::new("name", "max_length", "name must be at most 255 characters").with_param("max", 255_i64));
+        }
+        GuardOutcome { refuse, shadow }
     }
 }
 

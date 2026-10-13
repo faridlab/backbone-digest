@@ -48,7 +48,7 @@ config:
     extensions: true
     # Off-by-default targets this module's released API still carries; it keeps
     # them until its next breaking release.
-    opt_in: [seeder, specification, trigger, versioning]
+    opt_in: [seeder, trigger, versioning]
     disabled:
       - graphql
       - grpc

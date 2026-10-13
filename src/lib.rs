@@ -323,10 +323,10 @@ impl DigestModuleBuilder {
         let digest_subscription_service = Arc::new(DigestSubscriptionService::with_repository(digest_subscription_repository.clone()).with_guard(Arc::new(crate::application::service::digest_subscription_service::DigestSubscriptionRowRules)));
 
         let digest_digest_kpi_repository = Arc::new(DigestDigestKpiRepository::new(db_pool.clone()));
-        let digest_digest_kpi_service = Arc::new(DigestDigestKpiService::with_repository(digest_digest_kpi_repository.clone()));
+        let digest_digest_kpi_service = Arc::new(DigestDigestKpiService::with_repository(digest_digest_kpi_repository.clone()).with_guard(Arc::new(crate::application::service::digest_digest_kpi_service::DigestDigestKpiRowRules)));
 
         let digest_tip_repository = Arc::new(DigestTipRepository::new(db_pool.clone()));
-        let digest_tip_service = Arc::new(DigestTipService::with_repository(digest_tip_repository.clone()));
+        let digest_tip_service = Arc::new(DigestTipService::with_repository(digest_tip_repository.clone()).with_guard(Arc::new(crate::application::service::digest_tip_service::DigestTipRowRules)));
 
         let digest_tip_user_repository = Arc::new(DigestTipUserRepository::new(db_pool.clone()));
         let digest_tip_user_service = Arc::new(DigestTipUserService::with_repository(digest_tip_user_repository.clone()));

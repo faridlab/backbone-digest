@@ -32,9 +32,10 @@ pub type DigestSubscriptionService = GenericCrudService<
     DigestSubscriptionRepository,
 >;
 
-/// The row rules the schema declares for DigestSubscription, checked against the row a create or
-/// update would store. The generated build attaches it to [`DigestSubscriptionService`]. Every rule
-/// runs in shadow: a break is logged under `backbone::write_guard` and the write goes ahead.
+/// The rules the schema declares for DigestSubscription, checked against the row a create or update
+/// would store. The generated build attaches it to [`DigestSubscriptionService`]. A refusing rule's
+/// break answers 422; a rule in shadow is logged under `backbone::write_guard` and the
+/// write goes ahead.
 pub struct DigestSubscriptionRowRules;
 
 #[async_trait::async_trait]
