@@ -221,13 +221,9 @@ pub async fn unsubscribe_transition(
                 && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
         });
         let has_specific_perm = granted("digest_subscription:transition:unsubscribe");
-        let has_update_perm = granted("digest_subscription:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
-            if !has_update_perm {
-                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Insufficient permissions for unsubscribe transition")));
-            }
-            tracing::warn!(target: "backbone::write_guard", entity = "DigestSubscription", verb = "unsubscribe", code = "transition_by_update_permission", "a transition granted only by digest_subscription:update, running in shadow; it needs digest_subscription:transition:unsubscribe");
+            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("unsubscribe needs digest_subscription:transition:unsubscribe")));
         }
     }
 
@@ -284,13 +280,9 @@ pub async fn resubscribe_transition(
                 && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
         });
         let has_specific_perm = granted("digest_subscription:transition:resubscribe");
-        let has_update_perm = granted("digest_subscription:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
-            if !has_update_perm {
-                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Insufficient permissions for resubscribe transition")));
-            }
-            tracing::warn!(target: "backbone::write_guard", entity = "DigestSubscription", verb = "resubscribe", code = "transition_by_update_permission", "a transition granted only by digest_subscription:update, running in shadow; it needs digest_subscription:transition:resubscribe");
+            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("resubscribe needs digest_subscription:transition:resubscribe")));
         }
     }
 

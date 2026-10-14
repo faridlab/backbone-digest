@@ -221,13 +221,9 @@ pub async fn action_activate_transition(
                 && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
         });
         let has_specific_perm = granted("digest_digest:transition:action_activate");
-        let has_update_perm = granted("digest_digest:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
-            if !has_update_perm {
-                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("Insufficient permissions for action_activate transition")));
-            }
-            tracing::warn!(target: "backbone::write_guard", entity = "DigestDigest", verb = "action_activate", code = "transition_by_update_permission", "a transition granted only by digest_digest:update, running in shadow; it needs digest_digest:transition:action_activate");
+            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("action_activate needs digest_digest:transition:action_activate")));
         }
     }
 
@@ -284,13 +280,9 @@ pub async fn action_deactivate_transition(
                 && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
         });
         let has_specific_perm = granted("digest_digest:transition:action_deactivate");
-        let has_update_perm = granted("digest_digest:update");
         let _ = &allowed_roles;
         if !has_specific_perm {
-            if !has_update_perm {
-                return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("Insufficient permissions for action_deactivate transition")));
-            }
-            tracing::warn!(target: "backbone::write_guard", entity = "DigestDigest", verb = "action_deactivate", code = "transition_by_update_permission", "a transition granted only by digest_digest:update, running in shadow; it needs digest_digest:transition:action_deactivate");
+            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestDigestResponseDto>::error("action_deactivate needs digest_digest:transition:action_deactivate")));
         }
     }
 
