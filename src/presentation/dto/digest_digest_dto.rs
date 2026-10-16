@@ -35,7 +35,6 @@ pub struct CreateDigestDigestDto {
     pub periodicity: DigestPeriodicity,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "next_run_date")]
     pub next_run_date: Option<NaiveDate>,
-    pub state: DigestState,
 }
 
 // =============================================================================
@@ -207,7 +206,7 @@ impl From<CreateDigestDigestDto> for DigestDigest {
             name: dto.name,
             periodicity: dto.periodicity,
             next_run_date: dto.next_run_date,
-            state: dto.state,
+            state: DigestState::Activated,
             metadata: AuditMetadata::default(),
         }
     }

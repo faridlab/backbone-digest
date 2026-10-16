@@ -35,7 +35,6 @@ pub struct CreateDigestSubscriptionDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "user_id")]
     pub user_id: Uuid,
-    pub state: DigestSubscriptionState,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "unsubscribed_at")]
     pub unsubscribed_at: Option<DateTime<Utc>>,
 }
@@ -213,7 +212,7 @@ impl From<CreateDigestSubscriptionDto> for DigestSubscription {
             id: Uuid::new_v4(),
             digest_id: dto.digest_id,
             user_id: dto.user_id,
-            state: dto.state,
+            state: DigestSubscriptionState::Subscribed,
             unsubscribed_at: dto.unsubscribed_at,
             metadata: AuditMetadata::default(),
         }
