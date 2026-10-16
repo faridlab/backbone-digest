@@ -68,7 +68,7 @@ rules:
     assert: "on the CRON path only: if NO active recipient of the digest has logged in within the cadence window (daily 2d / weekly 7d / monthly 1m / quarterly 3m), the digest degrades one rung daily -> weekly -> monthly -> quarterly (quarterly stays; there is no reverse rung — nothing ever speeds a digest back up). The engagement signal is sapiens users.last_login read through the fail-closed recipient port (NOT a login-log table — the cycle doc's identity.UserLog mapping re-pointed). A manual Send Now never degrades anything. next_run_date advances on every send regardless"
     error_code: slowdown_signal_unavailable
     enforcement: service
-    justification: "PARTLY: the degrade update commits even when a mail failure leaves the digest unadvanced, so it slows one more rung each retry day; a digest with no recipients always degrades; 'active' reads subscription state only."
+    justification: "PARTLY: the rung is decided by the slowdown check and written only with the advance, so a send that fails and does not advance degrades nothing, and a digest with no recipients never degrades (tests/probes/slowdown_ladder.rs). Still open: 'active' reads subscription state only."
 
   # ---- the cron: a plain pull (DG-4, DG-13) -----------------------------------
 
@@ -79,7 +79,7 @@ rules:
     assert: "the due-date column IS the queue: the sweep searches next_run_date <= today AND state = activated, claiming due digests FOR UPDATE SKIP LOCKED (pickup_lock: true — two sweeps must not double-send). NO self-arming trigger exists anywhere (the EVM2 counter-example). A mail-delivery failure leaves next_run_date UNADVANCED (the digest retries whole next day). DECIDED DELTA vs upstream: the loop does NOT die mid-run on a per-digest failure — one digest's non-mail error is logged, audited, and isolated (the sweep continues to later digests); per-digest batches commit independently (commit_per_batch)"
     error_code: digest_send_conflict
     enforcement: service
-    justification: "PARTLY: the claim is FOR UPDATE SKIP LOCKED, but a failed send commits with next_run_date unchanged and releases the row, so a second replica re-mails every recipient the same day; mails are enqueued outside the claim transaction; under the composing service's FORCE row-level security the unscoped sweep sees no rows unless its role bypasses RLS."
+    justification: "PARTLY: the claim is FOR UPDATE SKIP LOCKED, and a failed send moves next_run_date to tomorrow inside the claim transaction, so a second replica's sweep the same day finds nothing due and nobody is mailed twice (tests/probes/slowdown_ladder.rs). Still open: mails are enqueued outside the claim transaction; under the composing service's FORCE row-level security the unscoped sweep sees no rows unless its role bypasses RLS."
 
   - id: R-DG13
     name: next_run_date_spine
@@ -100,7 +100,7 @@ rules:
     assert: "the one-click unsubscribe is a Tier A HMAC action link (ADR-0018/ADR-0019): POST-form endpoint on the host's bare public-route class, token = HMAC over (digest_id, user_id, expiry) compared consteq (timing-safe), WITH MANDATORY EXPIRY — the recorded delta vs Odoo's never-expiring token (links regenerate per mail, so expiry costs nothing and bounds replay). The endpoint returns a bare 200 with no body (RFC 8058) and is IDEMPOTENT (a second POST on an unsubscribed row is a no-op success). Verify is throttled. DKIM/domain posture is a named OPS DEPENDENCY of this leg — one-click headers only function on DKIM-signed mail; it is not enforceable here and is recorded as an ops requirement"
     error_code: unsubscribe_token_invalid
     enforcement: service
-    justification: "PARTLY: the HMAC and expiry hold, but the failure lock is keyed on the token's own digest and user ids and never expires, so five forged requests block a person's real unsubscribe; the GET leg unsubscribes (a prefetcher unsubscribes the recipient) and shows Unsubscribed even for a refused token; an empty secret makes tokens forgeable; the public route shares one global rate-limit bucket."
+    justification: "PARTLY: the HMAC and expiry hold; the MAC is checked before the failure lock, so forged requests can only lock forgeries out, never the recipient's genuine link, and a lock lapses after VERIFY_LOCK_SECONDS; an empty secret verifies nothing and from_env refuses one; following the link (GET) changes nothing and shows a confirm page, the confirm POST and the RFC 8058 one-click act, and an expired or forged link says which (tests/probes/unsubscribe_wire.rs, unsubscribe_roundtrip.rs). Still open: the public route shares one global rate-limit bucket."
 
   - id: R-DG8
     name: rfc8058_headers_rides_mail
@@ -131,7 +131,7 @@ rules:
     assert: "every newly-created INTERNAL user is subscribed to the configured default digest when both config keys are set (digest.default_digest_emails + digest.default_digest_id) — the trigger is the sapiens.user.created integration event on the host bus (there is NO sapiens Cargo edge and NO create-path interception here; the host relay delivers the fact, digest exposes the subscribe verb). The internal-user predicate is host-injected through the fail-closed recipient port: unwired port or non-internal user = LOUD refusal, never a silent skip. The first digest a fresh recipient receives carries the unsubscribe leg VISIBLY"
     error_code: auto_subscribe_refused
     enforcement: service
-    justification: "PARTLY: the growth loop subscribes new internal users, but subscribe_user upserts state back to subscribed, so a redelivered user.created re-subscribes someone who unsubscribed; one deployment-wide default digest serves every tenant, and any active membership counts as internal."
+    justification: "PARTLY: the growth loop subscribes new internal users through auto_subscribe_user, which creates a subscription only when none exists, so a redelivered user.created never re-subscribes someone who unsubscribed (tests/probes/auto_subscribe.rs). Still open: one deployment-wide default digest serves every tenant, and any active membership counts as internal."
 
   # ---- tenancy -----------------------------------------------------------------
   # No fence rule. The module is tenant-agnostic (ADR-0029): it ships no

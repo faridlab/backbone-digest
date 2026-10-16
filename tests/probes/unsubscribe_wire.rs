@@ -166,3 +166,59 @@ async fn one_click_form_body_carrier_still_applies() {
 
     db.dispose().await;
 }
+
+async fn page(app: &axum::Router, req: axum::http::Request<axum::body::Body>) -> (axum::http::StatusCode, String) {
+    use tower::ServiceExt;
+    let res = app.clone().oneshot(req).await.expect("oneshot");
+    let status = res.status();
+    let body = axum::body::to_bytes(res.into_body(), 1 << 20).await.expect("body");
+    (status, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// The human leg: following the link changes nothing and asks; the confirm
+/// form's POST acts and says so; an expired or forged link says what it is.
+#[tokio::test]
+async fn the_link_asks_first_and_the_confirm_acts() {
+    use axum::body::Body;
+    let Wire { db, svc, app } = Wire::new().await;
+    let now = Utc::now();
+    let digest = svc
+        .write
+        .create_digest("Human Digest", DigestPeriodicity::Daily, now.date_naive())
+        .await
+        .expect("create digest");
+    let user = seed_user(&db.pool, "human@x.test", None).await;
+    assert!(svc.write.subscribe_user(digest, user, None).await.expect("subscribe"));
+    let token = svc.unsub.mint_link_token(digest, user);
+
+    // Following the link (a person, or a mail prefetcher) unsubscribes nobody.
+    let (status, body) = page(&app, axum::http::Request::get(format!("/digest/unsubscribe?t={token}")).body(Body::empty()).unwrap()).await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert!(body.contains("Unsubscribe from this digest?") && body.contains("name=\"confirm\""), "{body}");
+    assert_eq!(subscription_state(&db.pool, digest, user).await, "subscribed", "the GET changes nothing");
+
+    // The confirm form's POST acts, and the page says so.
+    let (_, body) = page(
+        &app,
+        axum::http::Request::post("/digest/unsubscribe")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!("t={token}&confirm=1")))
+            .unwrap(),
+    )
+    .await;
+    assert!(body.contains("Unsubscribed"), "{body}");
+    assert_eq!(subscription_state(&db.pool, digest, user).await, "unsubscribed");
+
+    // An expired genuine link says it expired; a forged one says it is not valid.
+    let stale = svc.unsub.mint(digest, user, (now - Duration::days(200)).naive_utc());
+    let stale = format!("{}.{}.{}.{}", stale.digest_id, stale.user_id, stale.exp, stale.mac);
+    let (_, body) = page(&app, axum::http::Request::get(format!("/digest/unsubscribe?t={stale}")).body(Body::empty()).unwrap()).await;
+    assert!(body.contains("expired"), "{body}");
+    let mut forged = token.clone();
+    forged.pop();
+    forged.push(if token.ends_with('a') { 'b' } else { 'a' });
+    let (_, body) = page(&app, axum::http::Request::get(format!("/digest/unsubscribe?t={forged}")).body(Body::empty()).unwrap()).await;
+    assert!(body.contains("not valid"), "{body}");
+
+    db.dispose().await;
+}

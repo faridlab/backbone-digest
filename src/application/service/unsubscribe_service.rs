@@ -65,7 +65,24 @@ pub struct UnsubscribeToken {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenVerdict {
     Valid,
-    /// Wrong MAC, malformed, or expired — ONE refusal shape (no oracle).
+    /// A genuine link past its expiry: the recipient is told the link has
+    /// expired. Only a token carrying the right MAC can read as expired, so
+    /// this says nothing a forger could use.
+    Expired,
+    /// Wrong MAC or malformed.
+    Refused,
+}
+
+/// What an acting unsubscribe request came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsubscribeOutcome {
+    /// This request unsubscribed the recipient.
+    Unsubscribed,
+    /// The link was genuine and the recipient was already unsubscribed.
+    AlreadyUnsubscribed,
+    /// A genuine link past its expiry: nothing changed.
+    Expired,
+    /// Not a link this service minted: nothing changed.
     Refused,
 }
 
@@ -77,10 +94,11 @@ pub const VERIFY_LOCK_SECONDS: i64 = 60;
 
 /// The verify-failure book (in-memory per composing service; a
 /// multi-instance host fronts it with a shared limiter — the family
-/// trade).
+/// trade). Each key holds its failure count and the moment of its latest
+/// failure; a lock lapses `VERIFY_LOCK_SECONDS` after that moment.
 #[derive(Debug, Default)]
 pub struct VerifyFailureBook {
-    entries: Mutex<HashMap<String, i32>>,
+    entries: Mutex<HashMap<String, (i32, std::time::Instant)>>,
 }
 
 impl VerifyFailureBook {
@@ -92,20 +110,33 @@ impl VerifyFailureBook {
         format!("digest-unsub|{digest_id}|{user_id}")
     }
 
-    /// Is this (digest, user) pair currently locked out?
+    fn window() -> std::time::Duration {
+        std::time::Duration::from_secs(VERIFY_LOCK_SECONDS as u64)
+    }
+
+    /// Is this (digest, user) pair currently locked out? A lock lapses once
+    /// its window has passed since the latest failure.
     pub fn locked(&self, digest_id: Uuid, user_id: Uuid) -> bool {
-        let n = *self
-            .entries
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&Self::key(digest_id, user_id))
-            .unwrap_or(&0);
-        n >= VERIFY_MAX_FAILURES
+        let mut guard = self.entries.lock().unwrap_or_else(|e| e.into_inner());
+        let key = Self::key(digest_id, user_id);
+        match guard.get(&key) {
+            Some((_, at)) if at.elapsed() >= Self::window() => {
+                guard.remove(&key);
+                false
+            }
+            Some((n, _)) => *n >= VERIFY_MAX_FAILURES,
+            None => false,
+        }
     }
 
     pub fn register_failure(&self, digest_id: Uuid, user_id: Uuid) {
         let mut guard = self.entries.lock().unwrap_or_else(|e| e.into_inner());
-        *guard.entry(Self::key(digest_id, user_id)).or_insert(0) += 1;
+        let entry = guard.entry(Self::key(digest_id, user_id)).or_insert((0, std::time::Instant::now()));
+        if entry.1.elapsed() >= Self::window() {
+            entry.0 = 0;
+        }
+        entry.0 += 1;
+        entry.1 = std::time::Instant::now();
     }
 
     pub fn reset(&self, digest_id: Uuid, user_id: Uuid) {
@@ -165,10 +196,14 @@ impl UnsubscribeService {
     }
 
     /// From the environment (`DIGEST_TOKEN_SECRET`); errors loudly when
-    /// unset (a silent default secret would forge capabilities).
+    /// unset or empty (a silent default or empty secret would let anyone
+    /// mint a capability).
     pub fn from_env(pool: PgPool) -> Result<Self, DigestError> {
         let secret = std::env::var(DIGEST_TOKEN_SECRET_ENV)
             .map_err(|_| DigestError::SecretNotConfigured)?;
+        if secret.trim().is_empty() {
+            return Err(DigestError::SecretNotConfigured);
+        }
         Ok(Self::with_secret(pool, secret.as_bytes()))
     }
 
@@ -210,21 +245,28 @@ impl UnsubscribeService {
         Some(UnsubscribeToken { digest_id, user_id, exp, mac })
     }
 
-    /// The (throttled) verdict for a candidate token at `now`.PURE-ish:
+    /// The (throttled) verdict for a candidate token at `now`. PURE-ish:
     /// touches only the in-memory failure book.
+    ///
+    /// The MAC is checked first: a token carrying the right MAC proves it
+    /// was minted for this pair, so it is honoured (within its expiry)
+    /// whatever forged requests did to the pair's failure count. Only a
+    /// token that fails its MAC meets the lock and adds to it, so forgeries
+    /// can never lock the real recipient out. An empty secret verifies
+    /// nothing: anyone could mint a token for it.
     pub fn verify(&self, token: &UnsubscribeToken, now: i64) -> TokenVerdict {
-        if self.failures.locked(token.digest_id, token.user_id) {
+        if self.secret.is_empty() {
             return TokenVerdict::Refused;
         }
-        let ok = verify_mac(&self.secret, token)
-            && now <= token.exp;
-        if ok {
-            self.failures.reset(token.digest_id, token.user_id);
-            TokenVerdict::Valid
-        } else {
-            self.failures.register_failure(token.digest_id, token.user_id);
-            TokenVerdict::Refused
+        if verify_mac(&self.secret, token) {
+            if now <= token.exp {
+                self.failures.reset(token.digest_id, token.user_id);
+                return TokenVerdict::Valid;
+            }
+            return TokenVerdict::Expired;
         }
+        self.failures.register_failure(token.digest_id, token.user_id);
+        TokenVerdict::Refused
     }
 
     /// Apply a VERIFIED unsubscribe, idempotently: flip the subscription
@@ -281,20 +323,37 @@ impl UnsubscribeService {
         Ok(performed)
     }
 
-    /// The full route path: parse → throttled verify → idempotent apply.
-    /// `Ok(applied)` either way for a well-formed request; the refusal
-    /// verdict also returns `Ok(false)` (bare 200, no action, no oracle).
-    pub async fn unsubscribe_by_token(&self, token_str: &str, now: i64) -> Result<bool, DigestError> {
-        let Some(token) = Self::parse(token_str) else {
-            // Malformed: count it against the zero-uuid bucket so garbage
-            // floods still hit a lock.
-            self.failures.register_failure(Uuid::nil(), Uuid::nil());
-            return Ok(false);
-        };
-        match self.verify(&token, now) {
-            TokenVerdict::Valid => self.apply(token.digest_id, token.user_id).await,
-            TokenVerdict::Refused => Ok(false),
+    /// The verdict for a link as it arrives, applying nothing: what the
+    /// confirm page shows before the recipient acts.
+    pub fn check_token(&self, token_str: &str, now: i64) -> TokenVerdict {
+        match Self::parse(token_str) {
+            Some(token) => self.verify(&token, now),
+            None => {
+                // Malformed: count it against the zero-uuid bucket so garbage
+                // floods still hit a lock.
+                self.failures.register_failure(Uuid::nil(), Uuid::nil());
+                TokenVerdict::Refused
+            }
         }
+    }
+
+    /// The full acting path: parse → verify → idempotent apply.
+    pub async fn unsubscribe_by_token(&self, token_str: &str, now: i64) -> Result<UnsubscribeOutcome, DigestError> {
+        let Some(token) = Self::parse(token_str) else {
+            self.failures.register_failure(Uuid::nil(), Uuid::nil());
+            return Ok(UnsubscribeOutcome::Refused);
+        };
+        Ok(match self.verify(&token, now) {
+            TokenVerdict::Valid => {
+                if self.apply(token.digest_id, token.user_id).await? {
+                    UnsubscribeOutcome::Unsubscribed
+                } else {
+                    UnsubscribeOutcome::AlreadyUnsubscribed
+                }
+            }
+            TokenVerdict::Expired => UnsubscribeOutcome::Expired,
+            TokenVerdict::Refused => UnsubscribeOutcome::Refused,
+        })
     }
 }
 
@@ -328,7 +387,7 @@ mod tests {
         let now = Utc::now().timestamp();
         let t = s.mint(d, u, Utc::now().naive_utc());
         assert_eq!(s.verify(&t, now), TokenVerdict::Valid);
-        assert_eq!(s.verify(&t, t.exp + 1), TokenVerdict::Refused);
+        assert_eq!(s.verify(&t, t.exp + 1), TokenVerdict::Expired);
     }
 
     #[tokio::test]
@@ -343,9 +402,17 @@ mod tests {
             assert_eq!(s.verify(&t, now), TokenVerdict::Refused);
         }
         assert!(s.failures.locked(d, u));
-        // Even the genuine token is locked out now.
+        // The genuine token still verifies: forgeries cannot lock the
+        // recipient out of their own link.
         let good = s.mint(d, u, Utc::now().naive_utc());
-        assert_eq!(s.verify(&good, now), TokenVerdict::Refused);
+        assert_eq!(s.verify(&good, now), TokenVerdict::Valid);
+    }
+
+    #[tokio::test]
+    async fn an_empty_secret_verifies_nothing() {
+        let s = UnsubscribeService::with_secret(PgPool::connect_lazy("postgres://x").unwrap(), b"");
+        let t = s.mint(Uuid::new_v4(), Uuid::new_v4(), Utc::now().naive_utc());
+        assert_eq!(s.verify(&t, Utc::now().timestamp()), TokenVerdict::Refused, "anyone could mint this token");
     }
 
     #[tokio::test]

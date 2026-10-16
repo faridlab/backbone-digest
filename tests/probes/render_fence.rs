@@ -366,11 +366,10 @@ async fn out_of_fence_kpis_drop_by_declaration_not_row_count() {
         .rsplit("t=")
         .next()
         .expect("token segment");
-    assert!(svc
-        .unsub
-        .unsubscribe_by_token(token, now.timestamp())
-        .await
-        .expect("token round-trip"));
+    assert_eq!(
+        svc.unsub.unsubscribe_by_token(token, now.timestamp()).await.expect("token round-trip"),
+        backbone_digest::application::service::unsubscribe_service::UnsubscribeOutcome::Unsubscribed
+    );
     assert_eq!(
         subscription_state(&db.pool, digest, alice).await,
         "unsubscribed",

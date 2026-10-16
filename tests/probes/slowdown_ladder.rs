@@ -88,15 +88,15 @@ async fn the_ladder_and_the_advance_rules() {
     seed_membership(&db.pool, co, u3).await;
     assert!(svc.write.subscribe_user(d3, u3, None).await.expect("sub u3"));
 
-    // d4: DAILY, ENGAGED recipient, but the smtp leg refuses exactly
-    //     them → cadence untouched AND deliberately UNADVANCED (retry
-    //     whole next day).
+    // d4: DAILY, COLD recipient, and the smtp leg refuses exactly them →
+    //     not advanced, so NOT degraded either (a send that does not
+    //     advance degrades nothing); due again tomorrow.
     let d4 = svc
         .write
         .create_digest("Smtp Down", DigestPeriodicity::Daily, due_since)
         .await
         .expect("create d4");
-    let u4 = seed_user(&db.pool, "smtp@x.test", Some(now - Duration::hours(1))).await;
+    let u4 = seed_user(&db.pool, "smtp@x.test", None).await;
     seed_membership(&db.pool, co, u4).await;
     assert!(svc.write.subscribe_user(d4, u4, None).await.expect("sub u4"));
 
@@ -110,6 +110,14 @@ async fn the_ladder_and_the_advance_rules() {
     let u5 = seed_user(&db.pool, "manual@x.test", None).await;
     seed_membership(&db.pool, co, u5).await;
     assert!(svc.write.subscribe_user(d5, u5, None).await.expect("sub u5"));
+
+    // d6: DAILY with no subscriber at all → nobody to be disengaged: it
+    //     advances and never degrades.
+    let d6 = svc
+        .write
+        .create_digest("Nobody Subscribed", DigestPeriodicity::Daily, due_since)
+        .await
+        .expect("create d6");
 
     // ---- manual Send Now FIRST (d5): never degrades, never advances ----
     let (sent, mail_fail, unexpected) = svc.cron.send_now(d5, now).await.expect("send_now");
@@ -138,9 +146,9 @@ async fn the_ladder_and_the_advance_rules() {
     let cron = DigestCronService::new(db.pool.clone(), render, svc.slot.clone());
     let outcome = cron.run_daily_pull(now).await.expect("daily pull");
 
-    // Every due digest was claimed exactly once (d1..d5 — d5 too: Send
+    // Every due digest was claimed exactly once (d1..d6 — d5 too: Send
     // Now left it due, and the cron path degrades it legitimately).
-    assert_eq!(outcome.claimed, 5, "claimed: {} (d1-d5 all due)", outcome.claimed);
+    assert_eq!(outcome.claimed, 6, "claimed: {} (d1-d6 all due)", outcome.claimed);
     assert!(outcome.isolated_failures.is_empty(), "no digest hit an unexpected failure");
 
     // d1 degraded one rung to WEEKLY and advanced by the weekly span.
@@ -162,17 +170,23 @@ async fn the_ladder_and_the_advance_rules() {
     assert_eq!(p3, "quarterly");
     assert_eq!(n3, Some(DigestPeriodicity::Quarterly.advance(today)));
 
-    // d4: the smtp leg refused its one recipient → cadence held,
-    //     UNADVANCED (still due).
+    // d4: the smtp leg refused its one recipient → not advanced, and so
+    //     not degraded although its recipient is cold; due tomorrow.
     assert!(outcome.mail_delivery_failures.contains(&d4));
-    assert!(!outcome.degraded.contains(&d4), "u4 is engaged; no degradation before the refusal");
+    assert!(!outcome.degraded.contains(&d4), "a send that does not advance degrades nothing");
     let (p4, n4) = digest_cadence(&db.pool, d4).await;
     assert_eq!(p4, "daily");
     assert_eq!(
         n4,
-        Some(due_since + Duration::days(1)),
-        "a mail-delivery failure deliberately leaves the digest due"
+        Some(today + Duration::days(1)),
+        "a failed send moves the digest to tomorrow, so no other sweep re-mails today"
     );
+
+    // d6: no subscriber → advanced, never degraded.
+    assert!(!outcome.degraded.contains(&d6), "a digest with no recipients has nobody to be disengaged");
+    let (p6, n6) = digest_cadence(&db.pool, d6).await;
+    assert_eq!(p6, "daily");
+    assert_eq!(n6, Some(DigestPeriodicity::Daily.advance(today)));
 
     // d5 in the sweep: no login signal → degraded now (cron path),
     // advanced by the new weekly cadence.
@@ -186,22 +200,24 @@ async fn the_ladder_and_the_advance_rules() {
     assert_eq!(svc.seam.sent().len(), 5, "4 sweep mails + 1 manual mail");
     assert_eq!(outcome.sent_mails, 4, "the sweep enqueued four mails");
 
-    // A second pull, healthy seam: only the unadvanced d4 is still due;
-    // it retries whole, sends, and advances.
+    // A second pull the same day — a second replica's sweep — finds
+    // nothing due: the failed d4 waits for tomorrow, so nobody is mailed twice.
     let outcome2 = svc.cron.run_daily_pull(now + Duration::hours(1)).await.expect("second pull");
-    assert_eq!(outcome2.claimed, 1, "only the unadvanced d4 retries");
-    assert!(!outcome2.degraded.contains(&d4));
-    assert_eq!(outcome2.sent_mails, 1);
-    let (_, n4b) = digest_cadence(&db.pool, d4).await;
-    assert_eq!(
-        n4b,
-        Some(DigestPeriodicity::Daily.advance(today)),
-        "d4 advances once its retry succeeds"
-    );
+    assert_eq!(outcome2.claimed, 0, "nothing is due again today");
+    assert_eq!(outcome2.sent_mails, 0);
 
-    // A third pull is idle: the due-date column IS the queue.
-    let outcome3 = svc.cron.run_daily_pull(now + Duration::hours(2)).await.expect("third pull");
-    assert_eq!(outcome3.claimed, 0, "nothing left due today");
+    // Tomorrow, healthy seam: d4 retries whole, sends, and — now that it
+    // advances — degrades its cold cadence and advances by it.
+    let tomorrow = now + Duration::days(1);
+    let outcome3 = svc.cron.run_daily_pull(tomorrow).await.expect("tomorrow's pull");
+    assert!(outcome3.degraded.contains(&d4), "the advancing retry applies the cold digest's rung");
+    let (p4b, n4b) = digest_cadence(&db.pool, d4).await;
+    assert_eq!(p4b, "weekly");
+    assert_eq!(n4b, Some(DigestPeriodicity::Weekly.advance(tomorrow.date_naive())), "d4 advances once its retry succeeds");
+
+    // Another pull tomorrow is idle: the due-date column IS the queue.
+    let outcome4 = svc.cron.run_daily_pull(tomorrow + Duration::hours(1)).await.expect("idle pull");
+    assert_eq!(outcome4.claimed, 0, "nothing left due tomorrow");
 
     db.dispose().await;
 }

@@ -128,17 +128,18 @@ impl IntegrationEventHandler for UserCreatedHandler {
             return Ok(());
         }
 
-        // The subscribe verb — idempotent on the (digest, user) key.
+        // Created only when the person has no subscription yet: a redelivered
+        // event never overrides an unsubscribe.
         let first_time = self
             .write
-            .subscribe_user(
+            .auto_subscribe_user(
                 default_digest,
                 user_id,
-                Some(serde_json::json!({
+                serde_json::json!({
                     "auto_subscribed": true,
                     "auto_subscribed_at": chrono::Utc::now().to_rfc3339(),
                     "auto_subscribed_envelope": envelope.id,
-                })),
+                }),
             )
             .await
             .map_err(|e| EventError::handler(HANDLER, format!("subscribe verb: {e}")))?;

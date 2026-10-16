@@ -67,6 +67,19 @@ async fn created_users_subscribe_internal_only_and_idempotently() {
         "subscribed"
     );
 
+    // ---- they unsubscribe; a redelivered creation leaves it that way ---
+    let token = svc.unsub.mint_link_token(default_digest, internal);
+    svc.unsub.unsubscribe_by_token(&token, now.timestamp()).await.expect("unsubscribe");
+    handler
+        .handle(user_created_envelope(internal))
+        .await
+        .expect("a redelivered creation is a success");
+    assert_eq!(
+        super::common::subscription_state(&db.pool, default_digest, internal).await,
+        "unsubscribed",
+        "the growth loop never re-subscribes someone who unsubscribed"
+    );
+
     // ---- external user (no membership): audited refusal, no row --------
     let external = seed_user(&db.pool, "customer@portal.test", None).await;
     handler

@@ -258,7 +258,9 @@ pub async fn seed_user(pool: &PgPool, email: &str, last_login: Option<chrono::Da
            VALUES ($1, $2, $3, 'probe-hash', 'active', $4)"#,
     )
     .bind(id)
-    .bind(email)
+    // The username is the email's local part plus a suffix: the users table refuses an `@`
+    // in a username.
+    .bind(format!("{}_{}", email.split('@').next().unwrap_or("probe"), &id.simple().to_string()[..6]))
     .bind(email)
     .bind(last_login)
     .execute(pool)

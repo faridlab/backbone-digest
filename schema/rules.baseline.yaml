@@ -9,3 +9,5 @@ unenforced_rules:
 - 'digest.hook.yaml: pull_cron_due_date_queue'
 - 'digest.hook.yaml: slowdown_ladder_cron_only'
 - 'digest.hook.yaml: unsubscribe_is_hmac_capability'
+bypassable_rules:
+- 'digest.hook.yaml: set_periodicity_is_post'

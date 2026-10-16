@@ -15,9 +15,10 @@
 //!    digest's processing and released by its own commit, so a concurrent
 //!    sweep skips the locked row;
 //! 2. **slowdown check** (cron path only — a manual Send Now never
-//!    degrades anything): if NO active recipient logged in within the
-//!    cadence window, degrade one rung and audit
-//!    `digest_slowdown_degraded`. The signal is sapiens
+//!    degrades anything): if the digest has recipients and NONE logged in
+//!    within the cadence window, it is decided to degrade one rung — written
+//!    with the advance (step 4) and audited `digest_slowdown_degraded`, so a
+//!    send that does not advance degrades nothing. The signal is sapiens
 //!    `users.last_login` through the fail-closed recipient port — when
 //!    the port cannot answer, the ladder HOLDS the cadence and reports
 //!    `slowdown_signal_unavailable` (never degrades on a guess);
@@ -25,8 +26,9 @@
 //!    (condition 16) and enqueue through the mail seam (audit
 //!    `digest_email_sent`), tip marker after enqueue;
 //! 4. **advance** — `next_run_date` moves by the (possibly degraded)
-//!    cadence — UNLESS a mail-delivery failure occurred (then
-//!    deliberately unadvanced: the digest retries whole next day);
+//!    cadence — UNLESS a send failed (then not advanced: `next_run_date`
+//!    moves to tomorrow, so no other sweep re-mails today, and the digest
+//!    retries whole tomorrow);
 //! 5. **per-digest isolation** (the decided delta vs upstream's
 //!    die-mid-loop): one digest's failure is logged, audited, and left
 //!    due — the sweep CONTINUES to later digests.
@@ -182,33 +184,19 @@ impl DigestCronService {
         let recipients = active_recipients(&self.pool, digest.id).await?;
 
         // ---- step 2: the slowdown check (cron path only) --------------
-        let mut cadence = digest.periodicity;
+        // Decided here, written only with the advance (step 4): a send that
+        // does not advance degrades nothing, so a retried day cannot slow the
+        // digest a rung each time, and a digest with no recipients has
+        // nobody to be disengaged and never degrades.
+        let mut degrade_to: Option<DigestPeriodicity> = None;
         let user_ids: Vec<Uuid> = recipients.iter().map(|r| r.user_id).collect();
         let since = digest.periodicity.login_window_since(now);
-        match self.port.any_logged_in_since(&user_ids, since).await {
+        match if user_ids.is_empty() { Ok(true) } else { self.port.any_logged_in_since(&user_ids, since).await } {
             Ok(false) => {
-                if let Some(next) = cadence.next_rung() {
-                    sqlx::query(
-                        "UPDATE digest.digest_digests SET periodicity = $2::digest_periodicity WHERE id = $1",
-                    )
-                    .bind(digest.id)
-                    .bind(next.as_str())
-                    .execute(&mut **tx)
-                    .await?;
-                    tracing::info!(
-                        target: "digest::audit",
-                        event = "digest_slowdown_degraded",
-                        digest_id = %digest.id,
-                        from = cadence.as_str(),
-                        to = next.as_str(),
-                        recipients = user_ids.len()
-                    );
-                    cadence = next;
-                    outcome.degraded.push(digest.id);
-                }
                 // Quarterly floor: no fifth rung — stays.
+                degrade_to = digest.periodicity.next_rung();
             }
-            Ok(true) => { /* engaged: no degradation */ }
+            Ok(true) => { /* engaged, or no recipient to judge: no degradation */ }
             Err(e) => {
                 // Fail-closed signal: HOLD the cadence, never degrade on
                 // a guess. The send still proceeds (degradation is the
@@ -258,14 +246,39 @@ impl DigestCronService {
 
         // ---- step 4: the advance decision -----------------------------
         if mail_failure || digest_failure.is_some() {
-            // Deliberately UNADVANCED: the digest remains due and retries
-            // whole next day (at-least-once is the family's mail trade).
+            // Not advanced: the digest retries whole tomorrow (at-least-once
+            // is the family's mail trade). Its due date moves to tomorrow so
+            // another sweep today — a second replica — does not mail every
+            // recipient again.
             if mail_failure {
                 outcome.mail_delivery_failures.push(digest.id);
             } else {
                 outcome.isolated_failures.push(digest.id);
             }
+            sqlx::query("UPDATE digest.digest_digests SET next_run_date = $2 WHERE id = $1")
+                .bind(digest.id)
+                .bind(now.date_naive() + chrono::Duration::days(1))
+                .execute(&mut **tx)
+                .await?;
             return Ok(());
+        }
+        let mut cadence = digest.periodicity;
+        if let Some(next) = degrade_to {
+            sqlx::query("UPDATE digest.digest_digests SET periodicity = $2::digest_periodicity WHERE id = $1")
+                .bind(digest.id)
+                .bind(next.as_str())
+                .execute(&mut **tx)
+                .await?;
+            tracing::info!(
+                target: "digest::audit",
+                event = "digest_slowdown_degraded",
+                digest_id = %digest.id,
+                from = cadence.as_str(),
+                to = next.as_str(),
+                recipients = user_ids.len()
+            );
+            cadence = next;
+            outcome.degraded.push(digest.id);
         }
         let advanced_to = cadence.advance(now.date_naive());
         let n = sqlx::query("UPDATE digest.digest_digests SET next_run_date = $2 WHERE id = $1")

@@ -271,6 +271,31 @@ impl DigestWriteService {
         Ok(inserted)
     }
 
+    /// The growth loop's subscribe: create the subscription only when the
+    /// person has none. An existing row — subscribed, unsubscribed or
+    /// tombstoned — is left exactly as it is, so a redelivered
+    /// `user.created` never re-subscribes someone who unsubscribed.
+    /// Returns TRUE when this call created the row.
+    pub async fn auto_subscribe_user(
+        &self,
+        digest_id: Uuid,
+        user_id: Uuid,
+        metadata: serde_json::Value,
+    ) -> Result<bool, DigestError> {
+        let inserted = sqlx::query(
+            r#"INSERT INTO digest.digest_subscriptions (digest_id, user_id, state, metadata)
+               VALUES ($1, $2, 'subscribed', $3::jsonb)
+               ON CONFLICT (digest_id, user_id) DO NOTHING"#,
+        )
+        .bind(digest_id)
+        .bind(user_id)
+        .bind(metadata)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(inserted == 1)
+    }
+
     /// The 2-value state machine's one-liners (DG-2): any→any, no
     /// guards. `activated` puts the digest back in the due scan.
     pub async fn set_state(&self, digest_id: Uuid, activated: bool) -> Result<(), DigestError> {

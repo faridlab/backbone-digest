@@ -9,8 +9,7 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use backbone_digest::application::service::unsubscribe_service::{
-    TokenVerdict, UnsubscribeService, VERIFY_LOCK_SECONDS, VERIFY_MAX_FAILURES,
-};
+    TokenVerdict, UnsubscribeService, VERIFY_LOCK_SECONDS, VERIFY_MAX_FAILURES, UnsubscribeOutcome};
 use backbone_digest::application::service::DigestPeriodicity;
 
 use super::common::{seed_user, subscription_state, Svc, TestDb};
@@ -38,8 +37,9 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
         "subscribed",
         "precondition"
     );
-    assert!(
+    assert_eq!(
         svc.unsub.unsubscribe_by_token(&token, now.timestamp()).await.expect("first POST"),
+        UnsubscribeOutcome::Unsubscribed,
         "the first POST performs the unsubscribe"
     );
     assert_eq!(subscription_state(&db.pool, digest, user).await, "unsubscribed");
@@ -55,11 +55,12 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
     assert!(stamped.is_some(), "the tombstone stamps unsubscribed_at");
 
     // ---- the SAME token re-POSTed is a no-op success (bare 200) --------
-    assert!(
-        !svc.unsub
+    assert_eq!(
+        svc.unsub
             .unsubscribe_by_token(&token, now.timestamp() + 5)
             .await
             .expect("re-POST"),
+        UnsubscribeOutcome::AlreadyUnsubscribed,
         "the idempotent re-POST performs nothing but still succeeds"
     );
     assert_eq!(subscription_state(&db.pool, digest, user).await, "unsubscribed");
@@ -81,22 +82,24 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
     // ---- EXPIRED: minted 200 days ago (the 180-day TTL has passed) -----
     let stale = svc.unsub.mint(digest, user, (now - Duration::days(200)).naive_utc());
     let stale_str = format!("{}.{}.{}.{}", stale.digest_id, stale.user_id, stale.exp, stale.mac);
-    assert_eq!(svc.unsub.verify(&stale, now.timestamp()), TokenVerdict::Refused);
-    assert!(
-        !svc.unsub
+    assert_eq!(svc.unsub.verify(&stale, now.timestamp()), TokenVerdict::Expired, "a genuine link past its expiry says so");
+    assert_eq!(
+        svc.unsub
             .unsubscribe_by_token(&stale_str, now.timestamp())
             .await
             .expect("expired POST still a 200-shape Ok"),
+        UnsubscribeOutcome::Expired,
         "an expired token performs nothing"
     );
     assert_eq!(subscription_state(&db.pool, digest, user).await, "subscribed");
 
     // ---- MALFORMED: garbage performs nothing, still Ok ------------------
-    assert!(
-        !svc.unsub
+    assert_eq!(
+        svc.unsub
             .unsubscribe_by_token("garbage-token", now.timestamp())
             .await
             .expect("malformed POST still Ok"),
+        UnsubscribeOutcome::Refused,
         "a malformed token performs nothing"
     );
     assert_eq!(subscription_state(&db.pool, digest, user).await, "subscribed");
@@ -110,19 +113,20 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
         chars.into_iter().collect::<String>()
     };
     assert_ne!(minted, flipped);
-    assert!(
-        !svc.unsub
+    assert_eq!(
+        svc.unsub
             .unsubscribe_by_token(&flipped, now.timestamp())
             .await
             .expect("forged POST still Ok"),
+        UnsubscribeOutcome::Refused,
         "a forged token performs nothing"
     );
     assert_eq!(subscription_state(&db.pool, digest, user).await, "subscribed");
 
-    // ---- the verify-failure lockout throttles the pair ------------------
-    // The stale + malformed + forged attempts above already counted
-    // against (digest, user); drive the book to the threshold and past
-    // it, then show a VALID token is refused while locked.
+    // ---- forgeries lock the pair, and never lock the recipient out -----
+    // The forged attempts above counted against (digest, user); drive the
+    // book to the threshold, then show the recipient's own genuine link
+    // still works: the MAC is checked before the lock.
     let book = svc.unsub.failure_book();
     while !book.locked(digest, user) {
         let _ = svc
@@ -132,7 +136,7 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
             .expect("forged attempts stay Ok");
         // Guard against an infinite loop if the lock never engages.
         assert!(
-            svc.unsub.verify(&stale, now.timestamp()) == TokenVerdict::Refused
+            svc.unsub.verify(&UnsubscribeService::parse(&flipped).expect("parses"), now.timestamp()) == TokenVerdict::Refused
                 || book.locked(digest, user),
             "failures keep refusing"
         );
@@ -142,20 +146,21 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
         "VERIFY_MAX_FAILURES={} must engage the lock",
         VERIFY_MAX_FAILURES
     );
-    // A perfectly valid, fresh token is refused while locked (the
-    // throttle guards the verify leg, not just the apply leg).
+    // The recipient's genuine link is honoured while forgeries hold the
+    // lock: five forged requests cannot block a real unsubscribe.
     let fresh = svc.unsub.mint_link_token(digest, user);
     let verdict = UnsubscribeService::parse(&fresh)
         .map(|t| svc.unsub.verify(&t, now.timestamp()));
-    assert_eq!(verdict, Some(TokenVerdict::Refused));
-    assert!(
-        !svc.unsub
+    assert_eq!(verdict, Some(TokenVerdict::Valid));
+    assert_eq!(
+        svc.unsub
             .unsubscribe_by_token(&fresh, now.timestamp())
             .await
-            .expect("locked POST still Ok"),
-        "a valid token during lockout performs nothing"
+            .expect("POST during a forgery lock"),
+        UnsubscribeOutcome::Unsubscribed,
+        "a genuine link during a forgery lock still unsubscribes"
     );
-    assert_eq!(subscription_state(&db.pool, digest, user).await, "subscribed");
+    assert_eq!(subscription_state(&db.pool, digest, user).await, "unsubscribed");
     let _ = VERIFY_LOCK_SECONDS; // the lock's window (recorded)
 
     // ---- cross-key isolation: a token for another digest/user is valid
@@ -169,8 +174,9 @@ async fn one_click_round_trip_is_idempotent_and_oracle_free() {
     let user2 = seed_user(&db.pool, "other@x.test", None).await;
     assert!(svc.write.subscribe_user(digest2, user2, None).await.expect("subscribe 2"));
     let token2 = svc.unsub.mint_link_token(digest2, user2);
-    assert!(
+    assert_eq!(
         svc.unsub.unsubscribe_by_token(&token2, now.timestamp()).await.expect("cross-pair POST"),
+        UnsubscribeOutcome::Unsubscribed,
         "the second pair's token performs its own unsubscribe"
     );
     assert_eq!(subscription_state(&db.pool, digest2, user2).await, "unsubscribed");
@@ -205,13 +211,13 @@ async fn token_shape_ttl_and_secret_binding() {
         "the TTL is exactly 180 days"
     );
     assert_eq!(svc.verify(&parsed, now.timestamp()), TokenVerdict::Valid);
-    // Just before expiry: valid; just after: refused.
+    // Just before expiry: valid; just after: expired.
     assert_eq!(
         svc.verify(&parsed, parsed.exp - 1),
         TokenVerdict::Valid,
         "valid up to the expiry second"
     );
-    assert_eq!(svc.verify(&parsed, parsed.exp + 1), TokenVerdict::Refused);
+    assert_eq!(svc.verify(&parsed, parsed.exp + 1), TokenVerdict::Expired);
 
     // A different secret cannot verify the token (the MAC binds the
     // secret; the consteq leg).
