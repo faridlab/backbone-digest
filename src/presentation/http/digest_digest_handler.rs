@@ -206,7 +206,7 @@ pub async fn action_activate_transition(
     let entity = match service.get_by_id(&id).await {
         Ok(Some(e)) => e,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(ApiResponse::<DigestDigestResponseDto>::not_found("DigestDigest", &id))),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<DigestDigestResponseDto>::error(e.to_string()))),
+        Err(e) => return backbone_core::http::service_error_response::<DigestDigestResponseDto>(&e),
     };
 
     // Check permission
@@ -247,7 +247,7 @@ pub async fn action_activate_transition(
             (StatusCode::OK, Json(ApiResponse::ok(response)))
         }
         Ok(None) => (StatusCode::NOT_FOUND, Json(ApiResponse::<DigestDigestResponseDto>::not_found("DigestDigest", &id))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<DigestDigestResponseDto>::error(e.to_string()))),
+        Err(e) => backbone_core::http::service_error_response::<DigestDigestResponseDto>(&e),
     }
 }
 
@@ -265,7 +265,7 @@ pub async fn action_deactivate_transition(
     let entity = match service.get_by_id(&id).await {
         Ok(Some(e)) => e,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(ApiResponse::<DigestDigestResponseDto>::not_found("DigestDigest", &id))),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<DigestDigestResponseDto>::error(e.to_string()))),
+        Err(e) => return backbone_core::http::service_error_response::<DigestDigestResponseDto>(&e),
     };
 
     // Check permission
@@ -306,7 +306,7 @@ pub async fn action_deactivate_transition(
             (StatusCode::OK, Json(ApiResponse::ok(response)))
         }
         Ok(None) => (StatusCode::NOT_FOUND, Json(ApiResponse::<DigestDigestResponseDto>::not_found("DigestDigest", &id))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ApiResponse::<DigestDigestResponseDto>::error(e.to_string()))),
+        Err(e) => backbone_core::http::service_error_response::<DigestDigestResponseDto>(&e),
     }
 }
 

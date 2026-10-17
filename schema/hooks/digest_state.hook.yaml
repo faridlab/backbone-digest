@@ -29,12 +29,15 @@ states:
   # NOTE: `transitions` nests UNDER `states:` (the parser scopes it there);
   # at top level it is silently ignored — the generated Transition enum comes
   # out empty and the module does not compile.
+  # Every edge names all states rather than "*": the generated machine treats a
+  # final state as terminal unless an edge names it as a source, and these
+  # edges must leave the final state too.
   transitions:
     action_activate:
-      from: "*"
+      from: [activated, deactivated]
       to: activated
       message: "Resume — the digest re-enters the cron's due scan. Any->any by design (a pause is not a lifecycle event; no audit trail of edges is required upstream and none is invented here)."
     action_deactivate:
-      from: "*"
+      from: [activated, deactivated]
       to: deactivated
       message: "Pause — the digest leaves the due scan but keeps its next_run_date; re-activating resumes the schedule where it stood. Any->any, no guards."

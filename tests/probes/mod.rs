@@ -8,6 +8,7 @@
 
 pub mod auto_subscribe;
 pub mod common;
+pub mod generated_transition;
 pub mod render_fence;
 pub mod slowdown_ladder;
 pub mod unsubscribe_roundtrip;

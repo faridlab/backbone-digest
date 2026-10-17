@@ -197,6 +197,9 @@ impl backbone_core::PersistentEntity for DigestSubscription {
     fn write_protected_fields() -> &'static [&'static str] {
         &["state"]
     }
+    fn state_fields() -> &'static [&'static str] {
+        &["state"]
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

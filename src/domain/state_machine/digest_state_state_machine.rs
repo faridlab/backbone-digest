@@ -66,9 +66,9 @@ impl DigestStateState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DigestStateTransition {
-    /// * -> activated
+    /// activated, deactivated -> activated
     ActionActivate,
-    /// * -> deactivated
+    /// activated, deactivated -> deactivated
     ActionDeactivate,
 }
 
@@ -147,13 +147,12 @@ impl DigestStateStateMachine {
 
     /// Check if a transition is allowed from the current state
     pub fn can_transition(&self, transition: DigestStateTransition) -> bool {
-        if matches!(self.current_state, DigestStateState::Deactivated) {
-            return false;
-        }
-
         match (self.current_state, transition) {
-            (_, DigestStateTransition::ActionActivate) => true,
-            (_, DigestStateTransition::ActionDeactivate) => true,
+            (DigestStateState::Activated, DigestStateTransition::ActionActivate) => true,
+            (DigestStateState::Deactivated, DigestStateTransition::ActionActivate) => true,
+            (DigestStateState::Activated, DigestStateTransition::ActionDeactivate) => true,
+            (DigestStateState::Deactivated, DigestStateTransition::ActionDeactivate) => true,
+            _ => false,
         }
     }
 
@@ -259,7 +258,7 @@ mod tests {
 
     #[test]
     fn test_valid_transition() {
-        let mut sm = DigestStateStateMachine::new();
+        let mut sm = DigestStateStateMachine::from_state(DigestStateState::Activated);
         assert!(sm.can_transition(DigestStateTransition::ActionActivate));
         let result = sm.transition(DigestStateTransition::ActionActivate);
         assert!(result.is_ok());
