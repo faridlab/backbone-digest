@@ -32,9 +32,14 @@ use crate::domain::entity::DigestState;
 pub struct CreateDigestDigestDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
+    #[serde(default = "default_create_digest_digest_periodicity")]
     pub periodicity: DigestPeriodicity,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "next_run_date")]
     pub next_run_date: Option<NaiveDate>,
+}
+
+fn default_create_digest_digest_periodicity() -> DigestPeriodicity {
+    DigestPeriodicity::Daily
 }
 
 // =============================================================================
@@ -74,8 +79,8 @@ pub struct PatchDigestDigestDto {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub periodicity: Option<DigestPeriodicity>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "next_run_date")]
-    pub next_run_date: Option<NaiveDate>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "next_run_date")]
+    pub next_run_date: Option<Option<NaiveDate>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<DigestState>,
 }
@@ -240,12 +245,4 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestDigestDto> for DigestDigest {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to DigestDigest here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

@@ -45,30 +45,6 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-    post:
-      tags:
-        - DigestDigests
-      summary: Create DigestDigest
-      description: Create a new DigestDigest
-      operationId: createDigestDigest
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateDigestDigestRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigest'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
   /api/v1/digest/digest_digests/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
@@ -88,181 +64,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-    put:
-      tags:
-        - DigestDigests
-      summary: Update DigestDigest (full)
-      operationId: updateDigestDigest
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateDigestDigestRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-    patch:
-      tags:
-        - DigestDigests
-      summary: Update DigestDigest (partial)
-      operationId: patchDigestDigest
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchDigestDigestRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-    delete:
-      tags:
-        - DigestDigests
-      summary: Delete DigestDigest (soft)
-      operationId: deleteDigestDigest
-      responses:
-        '204':
-          description: Deleted
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/v1/digest/digest_digests/bulk:
-    post:
-      tags:
-        - DigestDigests
-      summary: Bulk create DigestDigests
-      operationId: bulkCreateDigestDigests
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/CreateDigestDigestRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DigestDigest'
-    put:
-      tags:
-        - DigestDigests
-      summary: Bulk update DigestDigests (full, atomic)
-      operationId: bulkUpdateDigestDigests
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                allOf:
-                  - type: object
-                    required: [id]
-                    properties:
-                      id:
-                        type: string
-                  - $ref: '#/components/schemas/UpdateDigestDigestRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigestBulkResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-    patch:
-      tags:
-        - DigestDigests
-      summary: Bulk partial-update DigestDigests (atomic)
-      operationId: bulkPatchDigestDigests
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              oneOf:
-                - type: object
-                  required: [ids, patch]
-                  properties:
-                    ids:
-                      type: array
-                      items: { type: string }
-                    patch:
-                      type: object
-                      additionalProperties: true
-                - type: object
-                  required: [items]
-                  properties:
-                    items:
-                      type: array
-                      items:
-                        type: object
-                        required: [id, patch]
-                        properties:
-                          id: { type: string }
-                          patch: { type: object, additionalProperties: true }
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigestBulkResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/v1/digest/digest_digests/upsert:
-    post:
-      tags:
-        - DigestDigests
-      summary: Upsert DigestDigest
-      operationId: upsertDigestDigest
-      parameters:
-        - name: key_field
-          in: query
-          schema:
-            type: string
-        - name: key_value
-          in: query
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateDigestDigestRequest'
-      responses:
-        '200':
-          description: Upserted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigest'
-
   /api/v1/digest/digest_digests/trash:
     get:
       tags:
@@ -279,115 +80,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DigestDigestList'
-
-  /api/v1/digest/digest_digests/{id}/restore:
-    parameters:
-      - $ref: '#/components/parameters/IdParam'
-    post:
-      tags:
-        - DigestDigests
-      summary: Restore deleted DigestDigest
-      operationId: restoreDigestDigest
-      responses:
-        '200':
-          description: Restored
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/v1/digest/digest_digests/empty:
-    delete:
-      tags:
-        - DigestDigests
-      summary: Empty trash for DigestDigests
-      operationId: emptyTrashDigestDigests
-      responses:
-        '200':
-          description: Trash emptied
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted_count:
-                    type: integer
-
-  /api/v1/digest/digest_digests/delete/bulk:
-    post:
-      tags:
-        - DigestDigests
-      summary: Bulk soft-delete DigestDigests by ids (atomic)
-      operationId: bulkDeleteDigestDigests
-      requestBody:
-        $ref: '#/components/requestBodies/BatchIds'
-      responses:
-        '200':
-          description: Soft-deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  soft_deleted: { type: integer }
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/v1/digest/digest_digests/restore/bulk:
-    post:
-      tags:
-        - DigestDigests
-      summary: Bulk restore DigestDigests by ids (atomic)
-      operationId: bulkRestoreDigestDigests
-      requestBody:
-        $ref: '#/components/requestBodies/BatchIds'
-      responses:
-        '200':
-          description: Restored
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestDigestBulkResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/v1/digest/digest_digests/restore/all:
-    post:
-      tags:
-        - DigestDigests
-      summary: Restore all soft-deleted DigestDigests
-      operationId: restoreAllDigestDigests
-      responses:
-        '200':
-          description: Restored
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  restored: { type: integer }
-
-  /api/v1/digest/digest_digests/trash/bulk:
-    delete:
-      tags:
-        - DigestDigests
-      summary: Bulk permanently-delete DigestDigests from trash by ids (atomic)
-      operationId: bulkPermanentDeleteDigestDigests
-      requestBody:
-        $ref: '#/components/requestBodies/BatchIds'
-      responses:
-        '200':
-          description: Permanently deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  permanently_deleted: { type: integer }
-        '400':
-          $ref: '#/components/responses/BadRequest'
 
   /api/v1/digest/digest_subscriptions:
     get:
@@ -411,30 +103,6 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Create DigestSubscription
-      description: Create a new DigestSubscription
-      operationId: createDigestSubscription
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateDigestSubscriptionRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscription'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
   /api/v1/digest/digest_subscriptions/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
@@ -454,181 +122,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-    put:
-      tags:
-        - DigestSubscriptions
-      summary: Update DigestSubscription (full)
-      operationId: updateDigestSubscription
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateDigestSubscriptionRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscription'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-    patch:
-      tags:
-        - DigestSubscriptions
-      summary: Update DigestSubscription (partial)
-      operationId: patchDigestSubscription
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchDigestSubscriptionRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscription'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-    delete:
-      tags:
-        - DigestSubscriptions
-      summary: Delete DigestSubscription (soft)
-      operationId: deleteDigestSubscription
-      responses:
-        '204':
-          description: Deleted
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/v1/digest/digest_subscriptions/bulk:
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Bulk create DigestSubscriptions
-      operationId: bulkCreateDigestSubscriptions
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/CreateDigestSubscriptionRequest'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DigestSubscription'
-    put:
-      tags:
-        - DigestSubscriptions
-      summary: Bulk update DigestSubscriptions (full, atomic)
-      operationId: bulkUpdateDigestSubscriptions
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                allOf:
-                  - type: object
-                    required: [id]
-                    properties:
-                      id:
-                        type: string
-                  - $ref: '#/components/schemas/UpdateDigestSubscriptionRequest'
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscriptionBulkResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-    patch:
-      tags:
-        - DigestSubscriptions
-      summary: Bulk partial-update DigestSubscriptions (atomic)
-      operationId: bulkPatchDigestSubscriptions
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              oneOf:
-                - type: object
-                  required: [ids, patch]
-                  properties:
-                    ids:
-                      type: array
-                      items: { type: string }
-                    patch:
-                      type: object
-                      additionalProperties: true
-                - type: object
-                  required: [items]
-                  properties:
-                    items:
-                      type: array
-                      items:
-                        type: object
-                        required: [id, patch]
-                        properties:
-                          id: { type: string }
-                          patch: { type: object, additionalProperties: true }
-      responses:
-        '200':
-          description: Updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscriptionBulkResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/v1/digest/digest_subscriptions/upsert:
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Upsert DigestSubscription
-      operationId: upsertDigestSubscription
-      parameters:
-        - name: key_field
-          in: query
-          schema:
-            type: string
-        - name: key_value
-          in: query
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateDigestSubscriptionRequest'
-      responses:
-        '200':
-          description: Upserted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscription'
-
   /api/v1/digest/digest_subscriptions/trash:
     get:
       tags:
@@ -645,115 +138,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DigestSubscriptionList'
-
-  /api/v1/digest/digest_subscriptions/{id}/restore:
-    parameters:
-      - $ref: '#/components/parameters/IdParam'
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Restore deleted DigestSubscription
-      operationId: restoreDigestSubscription
-      responses:
-        '200':
-          description: Restored
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscription'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/v1/digest/digest_subscriptions/empty:
-    delete:
-      tags:
-        - DigestSubscriptions
-      summary: Empty trash for DigestSubscriptions
-      operationId: emptyTrashDigestSubscriptions
-      responses:
-        '200':
-          description: Trash emptied
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  deleted_count:
-                    type: integer
-
-  /api/v1/digest/digest_subscriptions/delete/bulk:
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Bulk soft-delete DigestSubscriptions by ids (atomic)
-      operationId: bulkDeleteDigestSubscriptions
-      requestBody:
-        $ref: '#/components/requestBodies/BatchIds'
-      responses:
-        '200':
-          description: Soft-deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  soft_deleted: { type: integer }
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/v1/digest/digest_subscriptions/restore/bulk:
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Bulk restore DigestSubscriptions by ids (atomic)
-      operationId: bulkRestoreDigestSubscriptions
-      requestBody:
-        $ref: '#/components/requestBodies/BatchIds'
-      responses:
-        '200':
-          description: Restored
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DigestSubscriptionBulkResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/v1/digest/digest_subscriptions/restore/all:
-    post:
-      tags:
-        - DigestSubscriptions
-      summary: Restore all soft-deleted DigestSubscriptions
-      operationId: restoreAllDigestSubscriptions
-      responses:
-        '200':
-          description: Restored
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  restored: { type: integer }
-
-  /api/v1/digest/digest_subscriptions/trash/bulk:
-    delete:
-      tags:
-        - DigestSubscriptions
-      summary: Bulk permanently-delete DigestSubscriptions from trash by ids (atomic)
-      operationId: bulkPermanentDeleteDigestSubscriptions
-      requestBody:
-        $ref: '#/components/requestBodies/BatchIds'
-      responses:
-        '200':
-          description: Permanently deleted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  permanently_deleted: { type: integer }
-        '400':
-          $ref: '#/components/responses/BadRequest'
 
   /api/v1/digest/digest_digest_kpis:
     get:
@@ -1898,9 +1282,6 @@ components:
       type: object
       required:
         - name
-        - periodicity
-        - state
-        - metadata
       properties:
         name:
           type: string
@@ -1911,10 +1292,6 @@ components:
           nullable: true
           type: string
           format: date
-        state:
-          type: string
-        metadata:
-          type: object
 
     UpdateDigestDigestRequest:
       type: object
@@ -1922,7 +1299,6 @@ components:
         - name
         - periodicity
         - state
-        - metadata
       properties:
         name:
           type: string
@@ -1935,8 +1311,6 @@ components:
           format: date
         state:
           type: string
-        metadata:
-          type: object
 
     PatchDigestDigestRequest:
       type: object
@@ -1952,8 +1326,6 @@ components:
           format: date
         state:
           type: string
-        metadata:
-          type: object
 
     DigestDigestList:
       type: object
@@ -2010,8 +1382,6 @@ components:
       required:
         - digest_id
         - user_id
-        - state
-        - metadata
       properties:
         digest_id:
           type: string
@@ -2019,14 +1389,10 @@ components:
         user_id:
           type: string
           format: uuid
-        state:
-          type: string
         unsubscribed_at:
           nullable: true
           type: string
           format: date-time
-        metadata:
-          type: object
 
     UpdateDigestSubscriptionRequest:
       type: object
@@ -2034,7 +1400,6 @@ components:
         - digest_id
         - user_id
         - state
-        - metadata
       properties:
         digest_id:
           type: string
@@ -2048,8 +1413,6 @@ components:
           nullable: true
           type: string
           format: date-time
-        metadata:
-          type: object
 
     PatchDigestSubscriptionRequest:
       type: object
@@ -2066,8 +1429,6 @@ components:
           nullable: true
           type: string
           format: date-time
-        metadata:
-          type: object
 
     DigestSubscriptionList:
       type: object
@@ -2117,7 +1478,6 @@ components:
       required:
         - digest_id
         - kpi_key
-        - metadata
       properties:
         digest_id:
           type: string
@@ -2125,15 +1485,12 @@ components:
         kpi_key:
           type: string
           maxLength: 120
-        metadata:
-          type: object
 
     UpdateDigestDigestKpiRequest:
       type: object
       required:
         - digest_id
         - kpi_key
-        - metadata
       properties:
         digest_id:
           type: string
@@ -2141,8 +1498,6 @@ components:
         kpi_key:
           type: string
           maxLength: 120
-        metadata:
-          type: object
 
     PatchDigestDigestKpiRequest:
       type: object
@@ -2153,8 +1508,6 @@ components:
         kpi_key:
           type: string
           maxLength: 120
-        metadata:
-          type: object
 
     DigestDigestKpiList:
       type: object
@@ -2209,10 +1562,8 @@ components:
     CreateDigestTipRequest:
       type: object
       required:
-        - sequence
         - name
         - tip_description
-        - metadata
       properties:
         sequence:
           type: integer
@@ -2226,8 +1577,6 @@ components:
           nullable: true
           type: string
           maxLength: 120
-        metadata:
-          type: object
 
     UpdateDigestTipRequest:
       type: object
@@ -2235,7 +1584,6 @@ components:
         - sequence
         - name
         - tip_description
-        - metadata
       properties:
         sequence:
           type: integer
@@ -2249,8 +1597,6 @@ components:
           nullable: true
           type: string
           maxLength: 120
-        metadata:
-          type: object
 
     PatchDigestTipRequest:
       type: object
@@ -2267,8 +1613,6 @@ components:
           nullable: true
           type: string
           maxLength: 120
-        metadata:
-          type: object
 
     DigestTipList:
       type: object
@@ -2318,7 +1662,6 @@ components:
       required:
         - tip_id
         - user_id
-        - metadata
       properties:
         tip_id:
           type: string
@@ -2326,15 +1669,12 @@ components:
         user_id:
           type: string
           format: uuid
-        metadata:
-          type: object
 
     UpdateDigestTipUserRequest:
       type: object
       required:
         - tip_id
         - user_id
-        - metadata
       properties:
         tip_id:
           type: string
@@ -2342,8 +1682,6 @@ components:
         user_id:
           type: string
           format: uuid
-        metadata:
-          type: object
 
     PatchDigestTipUserRequest:
       type: object
@@ -2354,8 +1692,6 @@ components:
         user_id:
           type: string
           format: uuid
-        metadata:
-          type: object
 
     DigestTipUserList:
       type: object

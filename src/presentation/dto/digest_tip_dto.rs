@@ -29,6 +29,7 @@ use crate::domain::entity::AuditMetadata;
 #[serde(rename_all = "camelCase")]
 pub struct CreateDigestTipDto {
     #[cfg_attr(feature = "openapi", schema(example = 42))]
+    #[serde(default = "default_create_digest_tip_sequence")]
     pub sequence: i32,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     pub name: String,
@@ -37,6 +38,10 @@ pub struct CreateDigestTipDto {
     pub tip_description: String,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "group_key")]
     pub group_key: Option<String>,
+}
+
+fn default_create_digest_tip_sequence() -> i32 {
+    1
 }
 
 // =============================================================================
@@ -83,8 +88,8 @@ pub struct PatchDigestTipDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "tip_description")]
     pub tip_description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "group_key")]
-    pub group_key: Option<String>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "group_key")]
+    pub group_key: Option<Option<String>>,
 }
 
 impl PatchDigestTipDto {
@@ -249,12 +254,4 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestTipDto> for DigestTip {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to DigestTip here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

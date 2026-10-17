@@ -82,8 +82,8 @@ pub struct PatchDigestSubscriptionDto {
     pub user_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<DigestSubscriptionState>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "unsubscribed_at")]
-    pub unsubscribed_at: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "unsubscribed_at")]
+    pub unsubscribed_at: Option<Option<DateTime<Utc>>>,
 }
 
 impl PatchDigestSubscriptionDto {
@@ -247,12 +247,4 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestSubscriptionDto> for DigestSubscr
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to DigestSubscription here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

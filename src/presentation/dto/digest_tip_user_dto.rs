@@ -226,11 +226,3 @@ impl backbone_core::ApplyUpdateDto<UpdateDigestTipUserDto> for DigestTipUser {
     }
 }
 
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to DigestTipUser here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
-
