@@ -1,6 +1,6 @@
 [package]
 name = "backbone-digest"
-version = "0.11.2"
+version = "0.11.3"
 edition = "2021"
 description = "KPI digests — the periodic KPI-email engine: a declarative name-keyed KPI registry other modules extend, per-recipient fenced rendering with declared (never row-count) KPI drops, the anti-spam slowdown ladder, a shared tips carousel, and a daily plain-pull cron whose due-date column is the queue (Odoo digest port)"
 license = "MIT OR Apache-2.0"
@@ -19,8 +19,8 @@ path = "src/lib.rs"
 # at module creation. Cargo dedupes the git fetch — the repo is only cloned
 # once even though several crates reference it.
 # -----------------------------------------------------------------------------
-backbone-core = { version = "3.11.0", features = ["postgres"] }
-backbone-orm = { version = "3.0.0" }
+backbone-core = { version = "3.18.0", features = ["postgres"] }
+backbone-orm = { version = "3.18.0" }
 backbone-auth = { version = "3.0.0" }
 backbone-messaging = { version = "3.0.0" }
 # The one-click unsubscribe verify (and any future public route family) is
@@ -119,4 +119,4 @@ jsonwebtoken = "9.3"
 # write, which stages outbox bus events into messaging.outbox_events — a
 # table the outbox crate owns and migrates itself (the test harness runs
 # that migration; the mailing-module precedent).
-backbone-outbox = { version = "3.0.0" }
+backbone-outbox = { version = "3.18.0" }
