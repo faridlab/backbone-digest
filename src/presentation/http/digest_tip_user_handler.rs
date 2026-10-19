@@ -80,6 +80,13 @@ impl axum::response::IntoResponse for DigestTipUserError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `digest_tip_user:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn digest_tip_user_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("digest_tip_user")
+        .in_module("digest")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for DigestTipUser.
 ///
 /// # Routes
@@ -109,21 +116,23 @@ impl axum::response::IntoResponse for DigestTipUserError {
 /// let router = create_digest_tip_user_routes(service);
 /// ```
 pub fn create_digest_tip_user_routes(service: Arc<DigestTipUserService>) -> Router {
-    BackboneCrudHandler::<DigestTipUserService, DigestTipUser, CreateDigestTipUserDto, UpdateDigestTipUserDto, DigestTipUserResponseDto>::routes(
+    BackboneCrudHandler::<DigestTipUserService, DigestTipUser, CreateDigestTipUserDto, UpdateDigestTipUserDto, DigestTipUserResponseDto>::routes_guarded(
         service,
         "/digest_tip_users",
+        digest_tip_user_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for DigestTipUser.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_digest_tip_user_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_digest_tip_user_read_routes(service: Arc<DigestTipUserService>) -> Router {
-    BackboneCrudHandler::<DigestTipUserService, DigestTipUser, CreateDigestTipUserDto, UpdateDigestTipUserDto, DigestTipUserResponseDto>::read_routes(
+    BackboneCrudHandler::<DigestTipUserService, DigestTipUser, CreateDigestTipUserDto, UpdateDigestTipUserDto, DigestTipUserResponseDto>::read_routes_guarded(
         service,
         "/digest_tip_users",
+        digest_tip_user_permissions(),
     )
 }
 
@@ -139,9 +148,10 @@ pub fn create_digest_tip_user_read_routes(service: Arc<DigestTipUserService>) ->
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_digest_tip_user_write_routes(service: Arc<DigestTipUserService>) -> Router {
-    BackboneCrudHandler::<DigestTipUserService, DigestTipUser, CreateDigestTipUserDto, UpdateDigestTipUserDto, DigestTipUserResponseDto>::write_routes(
+    BackboneCrudHandler::<DigestTipUserService, DigestTipUser, CreateDigestTipUserDto, UpdateDigestTipUserDto, DigestTipUserResponseDto>::write_routes_guarded(
         service,
         "/digest_tip_users",
+        digest_tip_user_permissions(),
     )
 }
 

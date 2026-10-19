@@ -81,6 +81,13 @@ impl axum::response::IntoResponse for DigestSubscriptionError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `digest_subscription:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn digest_subscription_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("digest_subscription")
+        .in_module("digest")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for DigestSubscription.
 ///
 /// # Routes
@@ -110,21 +117,23 @@ impl axum::response::IntoResponse for DigestSubscriptionError {
 /// let router = create_digest_subscription_routes(service);
 /// ```
 pub fn create_digest_subscription_routes(service: Arc<DigestSubscriptionService>) -> Router {
-    BackboneCrudHandler::<DigestSubscriptionService, DigestSubscription, CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, DigestSubscriptionResponseDto>::routes(
+    BackboneCrudHandler::<DigestSubscriptionService, DigestSubscription, CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, DigestSubscriptionResponseDto>::routes_guarded(
         service,
         "/digest_subscriptions",
+        digest_subscription_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for DigestSubscription.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_digest_subscription_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_digest_subscription_read_routes(service: Arc<DigestSubscriptionService>) -> Router {
-    BackboneCrudHandler::<DigestSubscriptionService, DigestSubscription, CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, DigestSubscriptionResponseDto>::read_routes(
+    BackboneCrudHandler::<DigestSubscriptionService, DigestSubscription, CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, DigestSubscriptionResponseDto>::read_routes_guarded(
         service,
         "/digest_subscriptions",
+        digest_subscription_permissions(),
     )
 }
 
@@ -140,9 +149,10 @@ pub fn create_digest_subscription_read_routes(service: Arc<DigestSubscriptionSer
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_digest_subscription_write_routes(service: Arc<DigestSubscriptionService>) -> Router {
-    BackboneCrudHandler::<DigestSubscriptionService, DigestSubscription, CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, DigestSubscriptionResponseDto>::write_routes(
+    BackboneCrudHandler::<DigestSubscriptionService, DigestSubscription, CreateDigestSubscriptionDto, UpdateDigestSubscriptionDto, DigestSubscriptionResponseDto>::write_routes_guarded(
         service,
         "/digest_subscriptions",
+        digest_subscription_permissions(),
     )
 }
 
@@ -199,8 +209,19 @@ pub async fn unsubscribe_transition(
     axum::extract::State(service): axum::extract::State<Arc<DigestSubscriptionService>>,
     axum::extract::Path(id): axum::extract::Path<String>,
     auth: Option<axum::Extension<AuthContext>>,
+    waiver: Option<axum::Extension<backbone_auth::PermissionWaiver>>,
 ) -> impl axum::response::IntoResponse {
     use axum::{http::StatusCode, Json};
+
+    // Check permission
+    let Some(axum::Extension(auth)) = auth else {
+        return backbone_core::http::unauthenticated_refusal::<DigestSubscriptionResponseDto>();
+    };
+    if waiver.is_none() {
+        if let Err(refused) = auth.require_with("digest_subscription:unsubscribe", &["digest:unsubscribe"]) {
+            return backbone_core::http::permission_refusal::<DigestSubscriptionResponseDto>(&refused);
+        }
+    }
 
     // Get current entity
     let entity = match service.get_by_id(&id).await {
@@ -209,24 +230,6 @@ pub async fn unsubscribe_transition(
         Err(e) => return backbone_core::http::service_error_response::<DigestSubscriptionResponseDto>(&e),
     };
 
-    // Check permission
-    let Some(axum::Extension(auth)) = auth else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("A transition needs an authenticated caller")));
-    };
-    {
-        let allowed_roles = DigestSubscriptionStateTransition::Unsubscribe.allowed_roles();
-        let granted = |required: &str| auth.permissions.iter().any(|p| {
-            let (have, want): (Vec<&str>, Vec<&str>) = (p.split(':').collect(), required.split(':').collect());
-            have.iter().enumerate().all(|(i, h)| *h == "*" || want.get(i) == Some(h))
-                && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
-        });
-        let has_specific_perm = granted("digest_subscription:transition:unsubscribe");
-        let _ = &allowed_roles;
-        if !has_specific_perm {
-            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("unsubscribe needs digest_subscription:transition:unsubscribe")));
-        }
-    }
-
     // Create state machine from entity's actual status and validate transition
     let current_state: DigestSubscriptionStateState = match entity.state.to_string().parse() {
         Ok(s) => s,
@@ -234,7 +237,11 @@ pub async fn unsubscribe_transition(
     };
     let sm = DigestSubscriptionStateStateMachine::from_state(current_state);
     if !sm.can_transition(DigestSubscriptionStateTransition::Unsubscribe) {
-        return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Transition not allowed from current state")));
+        let refusal = backbone_core::service::ServiceError::Violations(vec![backbone_core::Violation::new("state", "transition_not_allowed", "unsubscribe is not allowed from the current state")
+            .with_param("transition", "unsubscribe")
+            .with_param("from", serde_json::to_value(&entity.state).unwrap_or_default())
+            .with_param("to", "unsubscribed")]);
+        return backbone_core::http::service_error_response::<DigestSubscriptionResponseDto>(&refusal);
     }
 
     // Apply transition via partial update
@@ -258,8 +265,19 @@ pub async fn resubscribe_transition(
     axum::extract::State(service): axum::extract::State<Arc<DigestSubscriptionService>>,
     axum::extract::Path(id): axum::extract::Path<String>,
     auth: Option<axum::Extension<AuthContext>>,
+    waiver: Option<axum::Extension<backbone_auth::PermissionWaiver>>,
 ) -> impl axum::response::IntoResponse {
     use axum::{http::StatusCode, Json};
+
+    // Check permission
+    let Some(axum::Extension(auth)) = auth else {
+        return backbone_core::http::unauthenticated_refusal::<DigestSubscriptionResponseDto>();
+    };
+    if waiver.is_none() {
+        if let Err(refused) = auth.require_with("digest_subscription:resubscribe", &["digest:resubscribe"]) {
+            return backbone_core::http::permission_refusal::<DigestSubscriptionResponseDto>(&refused);
+        }
+    }
 
     // Get current entity
     let entity = match service.get_by_id(&id).await {
@@ -268,24 +286,6 @@ pub async fn resubscribe_transition(
         Err(e) => return backbone_core::http::service_error_response::<DigestSubscriptionResponseDto>(&e),
     };
 
-    // Check permission
-    let Some(axum::Extension(auth)) = auth else {
-        return (StatusCode::UNAUTHORIZED, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("A transition needs an authenticated caller")));
-    };
-    {
-        let allowed_roles = DigestSubscriptionStateTransition::Resubscribe.allowed_roles();
-        let granted = |required: &str| auth.permissions.iter().any(|p| {
-            let (have, want): (Vec<&str>, Vec<&str>) = (p.split(':').collect(), required.split(':').collect());
-            have.iter().enumerate().all(|(i, h)| *h == "*" || want.get(i) == Some(h))
-                && (have.len() == want.len() || (have.len() < want.len() && have.last() == Some(&"*")))
-        });
-        let has_specific_perm = granted("digest_subscription:transition:resubscribe");
-        let _ = &allowed_roles;
-        if !has_specific_perm {
-            return (StatusCode::FORBIDDEN, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("resubscribe needs digest_subscription:transition:resubscribe")));
-        }
-    }
-
     // Create state machine from entity's actual status and validate transition
     let current_state: DigestSubscriptionStateState = match entity.state.to_string().parse() {
         Ok(s) => s,
@@ -293,7 +293,11 @@ pub async fn resubscribe_transition(
     };
     let sm = DigestSubscriptionStateStateMachine::from_state(current_state);
     if !sm.can_transition(DigestSubscriptionStateTransition::Resubscribe) {
-        return (StatusCode::BAD_REQUEST, Json(ApiResponse::<DigestSubscriptionResponseDto>::error("Transition not allowed from current state")));
+        let refusal = backbone_core::service::ServiceError::Violations(vec![backbone_core::Violation::new("state", "transition_not_allowed", "resubscribe is not allowed from the current state")
+            .with_param("transition", "resubscribe")
+            .with_param("from", serde_json::to_value(&entity.state).unwrap_or_default())
+            .with_param("to", "subscribed")]);
+        return backbone_core::http::service_error_response::<DigestSubscriptionResponseDto>(&refusal);
     }
 
     // Apply transition via partial update
@@ -318,5 +322,6 @@ pub fn create_digest_subscription_transition_routes(service: Arc<DigestSubscript
         .route("/digest_subscriptions/:id/transitions/unsubscribe", post(unsubscribe_transition))
         .route("/digest_subscriptions/:id/transitions/resubscribe", post(resubscribe_transition))
         .with_state(service)
+        .layer(axum::middleware::from_fn(backbone_core::http::correlation_middleware))
 }
 

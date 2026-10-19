@@ -200,6 +200,12 @@ impl backbone_core::PersistentEntity for DigestSubscription {
     fn state_fields() -> &'static [&'static str] {
         &["state"]
     }
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("digest_id", "digest.digest_digests", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

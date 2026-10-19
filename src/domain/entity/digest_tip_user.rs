@@ -156,6 +156,12 @@ impl super::Entity for DigestTipUser {
 }
 
 impl backbone_core::PersistentEntity for DigestTipUser {
+    fn references() -> &'static [backbone_core::Reference] {
+        const REFERENCES: &[backbone_core::Reference] = &[
+            backbone_core::Reference::new("tip_id", "digest.digest_tips", "id"),
+        ];
+        REFERENCES
+    }
     fn entity_id(&self) -> String {
         self.id.to_string()
     }

@@ -80,6 +80,13 @@ impl axum::response::IntoResponse for DigestDigestKpiError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `digest_digest_kpi:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn digest_digest_kpi_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("digest_digest_kpi")
+        .in_module("digest")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for DigestDigestKpi.
 ///
 /// # Routes
@@ -109,21 +116,23 @@ impl axum::response::IntoResponse for DigestDigestKpiError {
 /// let router = create_digest_digest_kpi_routes(service);
 /// ```
 pub fn create_digest_digest_kpi_routes(service: Arc<DigestDigestKpiService>) -> Router {
-    BackboneCrudHandler::<DigestDigestKpiService, DigestDigestKpi, CreateDigestDigestKpiDto, UpdateDigestDigestKpiDto, DigestDigestKpiResponseDto>::routes(
+    BackboneCrudHandler::<DigestDigestKpiService, DigestDigestKpi, CreateDigestDigestKpiDto, UpdateDigestDigestKpiDto, DigestDigestKpiResponseDto>::routes_guarded(
         service,
         "/digest_digest_kpis",
+        digest_digest_kpi_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for DigestDigestKpi.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_digest_digest_kpi_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_digest_digest_kpi_read_routes(service: Arc<DigestDigestKpiService>) -> Router {
-    BackboneCrudHandler::<DigestDigestKpiService, DigestDigestKpi, CreateDigestDigestKpiDto, UpdateDigestDigestKpiDto, DigestDigestKpiResponseDto>::read_routes(
+    BackboneCrudHandler::<DigestDigestKpiService, DigestDigestKpi, CreateDigestDigestKpiDto, UpdateDigestDigestKpiDto, DigestDigestKpiResponseDto>::read_routes_guarded(
         service,
         "/digest_digest_kpis",
+        digest_digest_kpi_permissions(),
     )
 }
 
@@ -139,9 +148,10 @@ pub fn create_digest_digest_kpi_read_routes(service: Arc<DigestDigestKpiService>
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_digest_digest_kpi_write_routes(service: Arc<DigestDigestKpiService>) -> Router {
-    BackboneCrudHandler::<DigestDigestKpiService, DigestDigestKpi, CreateDigestDigestKpiDto, UpdateDigestDigestKpiDto, DigestDigestKpiResponseDto>::write_routes(
+    BackboneCrudHandler::<DigestDigestKpiService, DigestDigestKpi, CreateDigestDigestKpiDto, UpdateDigestDigestKpiDto, DigestDigestKpiResponseDto>::write_routes_guarded(
         service,
         "/digest_digest_kpis",
+        digest_digest_kpi_permissions(),
     )
 }
 
